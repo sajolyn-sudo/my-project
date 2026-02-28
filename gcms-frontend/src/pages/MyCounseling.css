@@ -1,0 +1,5 @@
+@media (max-width: 980px) {
+  .reasonsGrid {
+    grid-template-columns: 1fr !important;
+  }
+}
