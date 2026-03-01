@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
+import { ArrowLeft, CalendarDays, GraduationCap, Hash, UserRound } from "lucide-react";
+import { useAuthStore } from "../store/authStore";
+import {
+  createReferralLog,
+  deleteReferralLog,
+  getReferral,
+  listReferralLogs,
+  updateReferral,
+} from "../lib/entitiesApi";
 
-type Role = "ADMIN" | "COUNSELOR" | "STUDENT";
+type Role =
+  | "ADMIN"
+  | "COUNSELOR"
+  | "TEACHER"
+  | "NON_TEACHING_PERSONNEL"
+  | "STUDENT";
 
 type User = {
   id: number;
@@ -204,10 +218,34 @@ function Toast({
 }
 
 export default function ReferralView() {
+  const location = useLocation();
   const { id } = useParams();
   const referralId = Number(id);
+  const listHref = useMemo(
+    () => `/app/referrals${location.search || ""}`,
+    [location.search],
+  );
 
-  const users = useMemo<User[]>(() => load<User[]>(USERS_KEY, []), []);
+  const authUser = useAuthStore((s) => s.user);
+  const users = useMemo<User[]>(() => {
+    const base = load<User[]>(USERS_KEY, []);
+    if (!authUser) return base;
+
+    const authAsUser: User = {
+      id: authUser.id,
+      fname: authUser.fname,
+      lname: authUser.lname,
+      email: authUser.email,
+      role: authUser.role,
+    };
+
+    const idx = base.findIndex((u) => u.id === authAsUser.id);
+    if (idx === -1) return [authAsUser, ...base];
+
+    const copy = [...base];
+    copy[idx] = { ...copy[idx], ...authAsUser };
+    return copy;
+  }, [authUser]);
   const colleges = useMemo<College[]>(
     () => load<College[]>(COLLEGES_KEY, []),
     [],
@@ -228,6 +266,7 @@ export default function ReferralView() {
   const [logs, setLogs] = useState<ReferralLog[]>(() =>
     load<ReferralLog[]>(REF_LOG_KEY, []),
   );
+  const [loaded, setLoaded] = useState(false);
 
   // ✅ Toast state
   const [toast, setToast] = useState<{
@@ -256,6 +295,51 @@ export default function ReferralView() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  useEffect(() => {
+    if (!referralId) {
+      setLoaded(true);
+      return;
+    }
+    setLoaded(false);
+    let alive = true;
+    const p1 = getReferral(referralId)
+      .then((res) => {
+        if (!alive) return;
+        const item = res.item;
+        setReferrals((prev) => {
+          const idx = prev.findIndex((r) => r.id === item.id);
+          const next =
+            idx === -1
+              ? [item, ...prev]
+              : prev.map((r) => (r.id === item.id ? item : r));
+          save(REF_KEY, next);
+          return next;
+        });
+      })
+      .catch(() => {
+        // Keep cached fallback if API is unreachable.
+      });
+
+    const p2 = listReferralLogs(referralId)
+      .then((res) => {
+        if (!alive) return;
+        const next = res.logs ?? [];
+        setLogs(next);
+        save(REF_LOG_KEY, next);
+      })
+      .catch(() => {
+        // Keep cached fallback if API is unreachable.
+      });
+
+    Promise.allSettled([p1, p2]).finally(() => {
+      if (alive) setLoaded(true);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [referralId]);
 
   const found = useMemo(
     () => referrals.find((r) => r.id === referralId),
@@ -301,11 +385,10 @@ export default function ReferralView() {
   useEffect(() => {
     setStatus(found?.status ?? "New");
   }, [found?.status]);
-
-  const staff = useMemo(
-    () => users.filter((u) => u.role === "COUNSELOR" || u.role === "ADMIN"),
-    [users],
-  );
+  const [detailsText, setDetailsText] = useState("");
+  useEffect(() => {
+    setDetailsText(found?.notes ?? "");
+  }, [found?.notes]);
 
   const [actionDate, setActionDate] = useState<string>(
     new Date().toISOString().slice(0, 10),
@@ -314,25 +397,28 @@ export default function ReferralView() {
     useState<ReferralLog["actionType"]>("Follow-up");
   const [note, setNote] = useState("");
 
-  const [createdByUserId, setCreatedByUserId] = useState<number>(0);
+  const [createdByUserId, setCreatedByUserId] = useState<number>(
+    authUser?.id ?? 0,
+  );
   useEffect(() => {
-    const fallback = staff[0]?.id ?? 0;
-    setCreatedByUserId(found?.referredByUserId ?? fallback);
-  }, [found?.referredByUserId, staff]);
+    setCreatedByUserId(authUser?.id ?? found?.referredByUserId ?? 0);
+  }, [authUser?.id, found?.referredByUserId]);
 
   const saveStatus = () => {
     if (!found) return;
-
-    const next = referrals.map((r) =>
-      r.id === found.id ? { ...r, status } : r,
-    );
-
-    setReferrals(next);
-    save(REF_KEY, next);
-    showToast("Status saved!", "success");
+    updateReferral({ id: found.id, status, notes: detailsText })
+      .then((res) => {
+        const next = res.referrals ?? [];
+        setReferrals(next);
+        save(REF_KEY, next);
+        showToast("Referral saved!", "success");
+      })
+      .catch((e: any) => {
+        showToast(e?.message || "Failed to save referral.", "error");
+      });
   };
 
-  const addLog = () => {
+  const addLog = async () => {
     if (!found) return;
 
     if (!note.trim()) {
@@ -344,32 +430,36 @@ export default function ReferralView() {
       return;
     }
 
-    const nextId = logs.length ? Math.max(...logs.map((l) => l.id)) + 1 : 1;
+    try {
+      const res = await createReferralLog({
+        referralId: found.id,
+        createdByUserId,
+        actionDate,
+        actionType,
+        note: note.trim(),
+      });
+      const next = res.logs ?? [];
+      setLogs(next);
+      save(REF_LOG_KEY, next);
 
-    const newLog: ReferralLog = {
-      id: nextId,
-      referralId: found.id,
-      createdByUserId,
-      actionDate,
-      actionType,
-      note: note.trim(),
-    };
-
-    const next = [newLog, ...logs];
-    setLogs(next);
-    save(REF_LOG_KEY, next);
-
-    setNote("");
-    setActionType("Follow-up");
-
-    showToast("Log added!", "success");
+      setNote("");
+      setActionType("Follow-up");
+      showToast("Log added!", "success");
+    } catch (e: any) {
+      showToast(e?.message || "Failed to add log.", "error");
+    }
   };
 
-  const deleteLog = (logId: number) => {
-    const next = logs.filter((l) => l.id !== logId);
-    setLogs(next);
-    save(REF_LOG_KEY, next);
-    showToast("Log deleted.", "info");
+  const deleteLog = async (logId: number) => {
+    try {
+      const res = await deleteReferralLog({ id: logId, referralId: found?.id });
+      const next = res.logs ?? [];
+      setLogs(next);
+      save(REF_LOG_KEY, next);
+      showToast("Log deleted.", "info");
+    } catch (e: any) {
+      showToast(e?.message || "Failed to delete log.", "error");
+    }
   };
 
   const referralLogs = useMemo(() => {
@@ -397,10 +487,17 @@ export default function ReferralView() {
     flexWrap: "wrap",
   };
 
-  const backLink: React.CSSProperties = {
-    textDecoration: "none",
+  const backIconLink: React.CSSProperties = {
+    height: 40,
+    width: 40,
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "white",
     color: "var(--primary)",
-    fontWeight: 900,
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   };
 
   const headerBlock: React.CSSProperties = {
@@ -580,6 +677,36 @@ export default function ReferralView() {
   };
 
   if (!found) {
+    if (!loaded) {
+      return (
+        <div style={page}>
+          <Toast
+            open={toast.open}
+            message={toast.message}
+            tone={toast.tone}
+            onClose={() => setToast((p) => ({ ...p, open: false }))}
+          />
+
+          <div style={topBar}>
+            <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
+              Referral Details
+            </h2>
+            <Link
+              to={listHref}
+              style={backIconLink}
+              title="Back to Referrals"
+              aria-label="Back to Referrals"
+            >
+              <ArrowLeft size={18} />
+            </Link>
+          </div>
+
+          <div style={card}>
+            <div style={{ opacity: 0.8 }}>Loading referral...</div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={page}>
         <Toast
@@ -593,8 +720,13 @@ export default function ReferralView() {
           <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
             Referral Details
           </h2>
-          <Link to="/app/referrals" style={backLink}>
-            ← Back
+          <Link
+            to={listHref}
+            style={backIconLink}
+            title="Back to Referrals"
+            aria-label="Back to Referrals"
+          >
+            <ArrowLeft size={18} />
           </Link>
         </div>
 
@@ -630,8 +762,13 @@ export default function ReferralView() {
         <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
           Referral Details
         </h2>
-        <Link to="/app/referrals" style={backLink}>
-          ← Back
+        <Link
+          to={listHref}
+          style={backIconLink}
+          title="Back to Referrals"
+          aria-label="Back to Referrals"
+        >
+          <ArrowLeft size={18} />
         </Link>
       </div>
 
@@ -661,13 +798,21 @@ export default function ReferralView() {
 
         <div style={pillRow}>
           <span style={pill}>
-            📅 Referred Date: {formatDateShort(found.referredDate)}
+            <CalendarDays size={14} />
+            Referred Date: {formatDateShort(found.referredDate)}
           </span>
-          <span style={pill}>🎓 Academic Year: {ay?.name ?? "—"}</span>
           <span style={pill}>
-            👤 Referred By: {referredBy ? labelUserById(referredBy.id) : "—"}
+            <GraduationCap size={14} />
+            Academic Year: {ay?.name ?? "—"}
           </span>
-          <span style={pill}>🆔 Referral ID: #{found.id}</span>
+          <span style={pill}>
+            <UserRound size={14} />
+            Referred By: {referredBy ? labelUserById(referredBy.id) : "—"}
+          </span>
+          <span style={pill}>
+            <Hash size={14} />
+            Referral ID: #{found.id}
+          </span>
         </div>
 
         <div style={sectionTitle}>Reason for Referral</div>
@@ -701,17 +846,29 @@ export default function ReferralView() {
         </div>
 
         <div style={sectionTitle}>Details</div>
-        <div style={detailsBox}>{found.notes?.trim() || "—"}</div>
+        <textarea
+          value={detailsText}
+          onChange={(e) => setDetailsText(e.target.value)}
+          style={{ ...detailsBox, width: "100%", resize: "vertical" }}
+          placeholder="Type referral details here..."
+        />
 
         <div
           style={{
             marginTop: 12,
-            fontSize: 12,
-            opacity: 0.75,
-            fontWeight: 900,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            flexWrap: "wrap",
           }}
         >
-          Created: <b>{found.createdAt}</b>
+          <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+            Created: <b>{found.createdAt}</b>
+          </div>
+          <button onClick={saveStatus} style={primaryButton}>
+            Save
+          </button>
         </div>
       </div>
 
@@ -720,17 +877,18 @@ export default function ReferralView() {
 
         <div
           style={{
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "1fr auto",
+            display: "flex",
+            alignItems: "end",
+            gap: 10,
+            flexWrap: "wrap",
           }}
         >
-          <div>
+          <div style={{ width: 220 }}>
             <div style={label}>Referral Status</div>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as Referral["status"])}
-              style={inputStyle}
+              style={{ ...inputStyle, width: "100%" }}
             >
               <option value="New">New</option>
               <option value="Reviewed">Reviewed</option>
@@ -738,11 +896,9 @@ export default function ReferralView() {
             </select>
           </div>
 
-          <div style={{ display: "flex", alignItems: "end" }}>
-            <button onClick={saveStatus} style={primaryButton}>
-              Save
-            </button>
-          </div>
+          <button onClick={saveStatus} style={primaryButton}>
+            Save
+          </button>
         </div>
       </div>
 
@@ -753,7 +909,7 @@ export default function ReferralView() {
           style={{
             display: "grid",
             gap: 12,
-            gridTemplateColumns: "1fr 1fr 2fr",
+            gridTemplateColumns: "1fr 1fr",
           }}
         >
           <div>
@@ -780,21 +936,6 @@ export default function ReferralView() {
               <option value="Phone Call">Phone Call</option>
               <option value="Resolved">Resolved</option>
               <option value="Other">Other</option>
-            </select>
-          </div>
-
-          <div>
-            <div style={label}>Created By</div>
-            <select
-              value={createdByUserId}
-              onChange={(e) => setCreatedByUserId(Number(e.target.value))}
-              style={inputStyle}
-            >
-              {staff.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fname} {u.lname} ({u.role})
-                </option>
-              ))}
             </select>
           </div>
         </div>
@@ -852,9 +993,6 @@ export default function ReferralView() {
                 </div>
 
                 <div style={{ opacity: 0.88, fontWeight: 800 }}>{l.note}</div>
-                <div style={{ fontSize: 13, opacity: 0.75 }}>
-                  By: <b>{labelUserById(l.createdByUserId)}</b>
-                </div>
               </div>
             ))
           )}

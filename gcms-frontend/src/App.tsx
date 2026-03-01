@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
+import SignUp from "./pages/SignUp";
 import Forbidden from "./pages/Forbidden";
 
 import Users from "./pages/Users";
@@ -34,6 +35,7 @@ import Account from "./pages/Account";
 import GetSupport from "./pages/GetSupport";
 
 import CounselorDashboard from "./pages/CounselorDashboard";
+import TeacherDashboard from "./pages/TeacherDashboard";
 
 import { useAuthStore } from "./store/authStore";
 
@@ -42,9 +44,23 @@ function DashboardRouter() {
 
   if (user?.role === "STUDENT") return <StudentDashboard />;
   if (user?.role === "COUNSELOR") return <CounselorDashboard />;
+  if (user?.role === "TEACHER" || user?.role === "NON_TEACHING_PERSONNEL") {
+    return <TeacherDashboard />;
+  }
 
   // ADMIN (and fallback)
   return <Dashboard />;
+}
+
+function AppHomeRedirect() {
+  const user = useAuthStore((s) => s.user);
+  const role = String(user?.role || "").toUpperCase();
+
+  if (role === "STUDENT") return <Navigate to="my-counseling" replace />;
+  if (role === "TEACHER" || role === "NON_TEACHING_PERSONNEL") {
+    return <Navigate to="referrals" replace />;
+  }
+  return <Navigate to="dashboard" replace />;
 }
 
 export default function App() {
@@ -52,17 +68,26 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<SignUp />} />
       <Route path="/403" element={<Forbidden />} />
 
       <Route
         path="/app"
         element={
-          <ProtectedRoute allowedRoles={["ADMIN", "COUNSELOR", "STUDENT"]}>
+          <ProtectedRoute
+            allowedRoles={[
+              "ADMIN",
+              "COUNSELOR",
+              "TEACHER",
+              "NON_TEACHING_PERSONNEL",
+              "STUDENT",
+            ]}
+          >
             <AppLayout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route index element={<AppHomeRedirect />} />
         <Route path="dashboard" element={<DashboardRouter />} />
 
         <Route
@@ -84,7 +109,15 @@ export default function App() {
         <Route
           path="account"
           element={
-            <ProtectedRoute allowedRoles={["STUDENT"]}>
+            <ProtectedRoute
+              allowedRoles={[
+                "ADMIN",
+                "COUNSELOR",
+                "TEACHER",
+                "NON_TEACHING_PERSONNEL",
+                "STUDENT",
+              ]}
+            >
               <Account />
             </ProtectedRoute>
           }
@@ -152,7 +185,14 @@ export default function App() {
         <Route
           path="referrals"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute
+              allowedRoles={[
+                "COUNSELOR",
+                "TEACHER",
+                "NON_TEACHING_PERSONNEL",
+                "ADMIN",
+              ]}
+            >
               <Referrals />
             </ProtectedRoute>
           }
@@ -160,7 +200,14 @@ export default function App() {
         <Route
           path="referrals/:id"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute
+              allowedRoles={[
+                "COUNSELOR",
+                "TEACHER",
+                "NON_TEACHING_PERSONNEL",
+                "ADMIN",
+              ]}
+            >
               <ReferralView />
             </ProtectedRoute>
           }
@@ -217,7 +264,7 @@ export default function App() {
           }
         />
 
-        <Route path="*" element={<Navigate to="dashboard" replace />} />
+        <Route path="*" element={<AppHomeRedirect />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

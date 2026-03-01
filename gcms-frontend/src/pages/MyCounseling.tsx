@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { CirclePlus } from "lucide-react";
 import Modal from "../components/Modal";
 import "./MyCounseling.css";
 
@@ -120,7 +121,7 @@ export default function MyCounseling() {
   };
 
   return (
-    <div style={{ padding: 24, maxWidth: 1120 }}>
+    <div style={{ padding: 24, width: "100%", boxSizing: "border-box" }}>
       {/* Header */}
       <div
         style={{
@@ -144,17 +145,21 @@ export default function MyCounseling() {
             height: 40,
             padding: "0 14px",
             borderRadius: 12,
-            border: "1px solid rgba(37,99,235,0.25)",
+            border: "1px solid rgba(15,23,42,0.7)",
             background:
-              "linear-gradient(180deg, rgba(37,99,235,0.14), rgba(37,99,235,0.06))",
-            color: "#1d4ed8",
+              "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))",
+            color: "white",
             fontWeight: 900,
             cursor: "pointer",
             boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
             whiteSpace: "nowrap",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
           }}
         >
-          + Request Counseling
+          <CirclePlus size={16} />
+          Request Counseling
         </button>
       </div>
 
@@ -397,46 +402,55 @@ export default function MyCounseling() {
                 marginBottom: 8,
               }}
             >
-              Reasons
+              Reason for Counseling * (Select all that apply)
             </div>
 
             <div
-              className="reasonsGrid"
               style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 8,
+                border: "1px solid rgba(15,23,42,0.12)",
+                borderRadius: 12,
+                padding: 10,
+                background: "rgba(255,255,255,0.92)",
               }}
             >
-              {REASONS.map((reason) => {
-                const checked = selectedReasons.includes(reason);
+              <div
+                className="reasonsGrid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                }}
+              >
+                {REASONS.map((reason) => {
+                  const checked = selectedReasons.includes(reason);
 
-                return (
-                  <label
-                    key={reason}
-                    style={{
-                      display: "flex",
-                      gap: 8,
-                      alignItems: "center",
-                      padding: 8,
-                      borderRadius: 10,
-                      border: "1px solid rgba(15,23,42,0.10)",
-                      background: checked ? "rgba(37,99,235,0.08)" : "white",
-                      cursor: "pointer",
-                      fontSize: 12,
-                      fontWeight: 800,
-                      color: "#0f172a",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleReason(reason)}
-                    />
-                    {reason}
-                  </label>
-                );
-              })}
+                  return (
+                    <label
+                      key={reason}
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                        padding: 4,
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 800,
+                        color: "#0f172a",
+                        background: checked ? "rgba(15,23,42,0.05)" : "transparent",
+                        userSelect: "none",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReason(reason)}
+                      />
+                      {reason}
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             <div
@@ -471,31 +485,57 @@ export default function MyCounseling() {
                 gap: 10,
               }}
             >
-              <input
-                type="date"
-                value={preferredDate}
-                onChange={(e) => setPreferredDate(e.target.value)}
-                style={{
-                  height: 36,
-                  borderRadius: 8,
-                  border: "1px solid rgba(15,23,42,0.15)",
-                  padding: "0 10px",
-                  fontSize: 12,
-                }}
-              />
+              <div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    fontWeight: 900,
+                    marginBottom: 6,
+                  }}
+                >
+                  Preferred Date
+                </div>
+                <input
+                  type="date"
+                  value={preferredDate}
+                  onChange={(e) => setPreferredDate(e.target.value)}
+                  style={{
+                    height: 36,
+                    borderRadius: 8,
+                    border: "1px solid rgba(15,23,42,0.15)",
+                    padding: "0 10px",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                />
+              </div>
 
-              <input
-                type="time"
-                value={preferredTime}
-                onChange={(e) => setPreferredTime(e.target.value)}
-                style={{
-                  height: 36,
-                  borderRadius: 8,
-                  border: "1px solid rgba(15,23,42,0.15)",
-                  padding: "0 10px",
-                  fontSize: 12,
-                }}
-              />
+              <div>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    fontWeight: 900,
+                    marginBottom: 6,
+                  }}
+                >
+                  Preferred Time
+                </div>
+                <input
+                  type="time"
+                  value={preferredTime}
+                  onChange={(e) => setPreferredTime(e.target.value)}
+                  style={{
+                    height: 36,
+                    borderRadius: 8,
+                    border: "1px solid rgba(15,23,42,0.15)",
+                    padding: "0 10px",
+                    fontSize: 12,
+                    width: "100%",
+                  }}
+                />
+              </div>
             </div>
 
             <div

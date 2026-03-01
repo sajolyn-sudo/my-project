@@ -1,4 +1,9 @@
-export type Role = "ADMIN" | "COUNSELOR" | "STUDENT";
+export type Role =
+  | "ADMIN"
+  | "COUNSELOR"
+  | "TEACHER"
+  | "NON_TEACHING_PERSONNEL"
+  | "STUDENT";
 
 export type AuthUser = {
   id: number;
@@ -6,6 +11,7 @@ export type AuthUser = {
   lname: string;
   email: string;
   role: Role;
+  profilePhoto?: string;
   collegeId?: number;
   yearLevelId?: number;
 };

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ClipboardList, User } from "lucide-react";
 import { useGCMS, fullName, type SurveyInterview } from "../store/gcmsStore";
 
 const pageStyle: React.CSSProperties = {
@@ -257,11 +258,14 @@ export default function Survey() {
               alignItems: "center",
             }}
           >
-            <Pill>👤 {fullName(currentUser)}</Pill>
-            <Pill>🧾 Status: {isSubmitted ? "Done" : "Pending"}</Pill>
-            <Link to="/app/dashboard" style={btn}>
-              ← Dashboard
-            </Link>
+            <Pill>
+              <User size={14} />
+              {fullName(currentUser)}
+            </Pill>
+            <Pill>
+              <ClipboardList size={14} />
+              Status: {isSubmitted ? "Done" : "Pending"}
+            </Pill>
           </div>
         </div>
 
@@ -446,29 +450,6 @@ export default function Survey() {
                 Note: For now, this page stores “submitted_at” only. Later, we
                 can store the answers in your ERD tables.
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick links */}
-        <div style={cardStyle}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
-            <div style={{ fontWeight: 950, color: "#0f172a" }}>Next steps</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <Link to="/app/my-counseling" style={btnPrimary}>
-                My Counseling
-              </Link>
-              <Link to="/app/my-referrals" style={btn}>
-                My Referrals
-              </Link>
             </div>
           </div>
         </div>

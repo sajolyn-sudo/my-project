@@ -1,7 +1,16 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+﻿import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft } from "lucide-react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import DropdownSelect from "../components/DropdownSelect";
+import { getCounselingCase, updateCounselingCase } from "../lib/entitiesApi";
 
-type Role = "ADMIN" | "COUNSELOR" | "STUDENT";
+type Role =
+  | "ADMIN"
+  | "COUNSELOR"
+  | "TEACHER"
+  | "NON_TEACHING_PERSONNEL"
+  | "STUDENT";
+
 type User = {
   id: number;
   fname: string;
@@ -15,7 +24,12 @@ type User = {
 
 type College = { id: number; name: string };
 type AcademicYear = { id: number; name: string; isActive: boolean };
-type YearLevel = { id: number; name: string; collegeId: number; academicYearId: number };
+type YearLevel = {
+  id: number;
+  name: string;
+  collegeId: number;
+  academicYearId: number;
+};
 
 type CounselingCase = {
   id: number;
@@ -50,8 +64,14 @@ function save<T>(key: string, data: T) {
 
 export default function CounselingView() {
   const nav = useNavigate();
+  const location = useLocation();
   const { id } = useParams();
   const caseId = Number(id);
+
+  const listHref = useMemo(
+    () => `/app/counseling${location.search || ""}`,
+    [location.search],
+  );
 
   const cases = useMemo(() => load<CounselingCase[]>(CASES_KEY, []), []);
   const users = useMemo(() => load<User[]>(USERS_KEY, []), []);
@@ -59,33 +79,87 @@ export default function CounselingView() {
   const years = useMemo(() => load<AcademicYear[]>(YEARS_KEY, []), []);
   const yearLevels = useMemo(() => load<YearLevel[]>(YL_KEY, []), []);
 
-  const found = cases.find((c) => c.id === caseId);
+  const [found, setFound] = useState<CounselingCase | undefined>(() =>
+    cases.find((c) => c.id === caseId),
+  );
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!caseId) {
+      setLoaded(true);
+      return;
+    }
+
+    setLoaded(false);
+    let alive = true;
+
+    getCounselingCase(caseId)
+      .then((res) => {
+        if (!alive) return;
+
+        const item = res.item;
+        setFound(item);
+
+        const current = load<CounselingCase[]>(CASES_KEY, []);
+        const idx = current.findIndex((c) => c.id === item.id);
+        const next =
+          idx === -1
+            ? [item, ...current]
+            : current.map((c) => (c.id === item.id ? item : c));
+        save(CASES_KEY, next);
+      })
+      .catch(() => {
+        // Keep cached fallback if API is unreachable.
+      })
+      .finally(() => {
+        if (alive) setLoaded(true);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [caseId]);
 
   const student = found ? users.find((u) => u.id === found.studentId) : undefined;
   const college = found ? colleges.find((c) => c.id === found.collegeId) : undefined;
   const ay = found ? years.find((y) => y.id === found.academicYearId) : undefined;
   const yl = found ? yearLevels.find((y) => y.id === found.yearLevelId) : undefined;
 
-  const [status, setStatus] = useState<CounselingCase["status"]>(found?.status ?? "Pending");
+  const [status, setStatus] = useState<CounselingCase["status"]>(
+    found?.status ?? "Pending",
+  );
   const [notes, setNotes] = useState(found?.notes ?? "");
+
+  useEffect(() => {
+    setStatus(found?.status ?? "Pending");
+    setNotes(found?.notes ?? "");
+  }, [found]);
+
+  const shell: React.CSSProperties = {
+    display: "grid",
+    gap: 16,
+  };
 
   const card: React.CSSProperties = {
     background: "var(--card)",
-    padding: 16,
+    padding: 18,
     borderRadius: 16,
     boxShadow: "var(--shadow)",
     border: "1px solid var(--border)",
   };
 
-  const inputStyle: React.CSSProperties = {
-    height: 40,
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    padding: "0 10px",
-    outline: "none",
-    width: "100%",
-    background: "white",
-    color: "var(--text)",
+  const label: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 0.2,
+    opacity: 0.72,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  };
+
+  const value: React.CSSProperties = {
+    fontWeight: 850,
+    fontSize: 30,
   };
 
   const textareaStyle: React.CSSProperties = {
@@ -96,7 +170,7 @@ export default function CounselingView() {
     width: "100%",
     background: "white",
     color: "var(--text)",
-    minHeight: 120,
+    minHeight: 130,
     resize: "vertical",
   };
 
@@ -122,111 +196,158 @@ export default function CounselingView() {
     cursor: "pointer",
   };
 
-  const label: React.CSSProperties = {
-    fontSize: 13,
-    fontWeight: 800,
-    opacity: 0.85,
-    marginBottom: 6,
+  const backIcon: React.CSSProperties = {
+    height: 36,
+    width: 36,
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "white",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--primary)",
+    textDecoration: "none",
   };
 
   if (!found) {
     return (
-      <div style={{ display: "grid", gap: 16 }}>
-        <h2 style={{ fontWeight: 900 }}>Case Details</h2>
+      <div style={shell}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            justifyContent: "space-between",
+          }}
+        >
+          <h2 style={{ fontWeight: 900, margin: 0 }}>Case Details</h2>
+          <Link
+            to={listHref}
+            title="Back to Counseling Cases"
+            aria-label="Back to Counseling Cases"
+            style={backIcon}
+          >
+            <ArrowLeft size={18} />
+          </Link>
+        </div>
+
         <div style={card}>
-          <div style={{ opacity: 0.8 }}>Case not found.</div>
-          <div style={{ marginTop: 12 }}>
-            <Link
-              to="/app/counseling"
-              style={{ color: "var(--primary)", fontWeight: 900, textDecoration: "none" }}
-            >
-              ← Back to Counseling Cases
-            </Link>
-          </div>
+          <div style={{ opacity: 0.8 }}>{loaded ? "Case not found." : "Loading case..."}</div>
         </div>
       </div>
     );
   }
 
   const studentName = student
-    ? `${student.fname} ${student.mname ? student.mname + " " : ""}${student.lname}`
+    ? `${student.fname} ${student.mname ? `${student.mname} ` : ""}${student.lname}`
     : "Unknown Student";
 
-  const handleSave = () => {
-    const next = cases.map((c) =>
-      c.id === found.id ? { ...c, status, notes: notes.trim() ? notes.trim() : undefined } : c
-    );
-    save(CASES_KEY, next);
-    nav("/app/counseling");
+  const handleSave = async () => {
+    try {
+      const res = await updateCounselingCase({
+        id: found.id,
+        status,
+        notes: notes.trim() ? notes.trim() : undefined,
+      });
+      save(CASES_KEY, res.cases ?? []);
+      nav(listHref);
+    } catch (e: any) {
+      alert(e?.message || "Failed to save case.");
+    }
   };
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h2 style={{ fontWeight: 900, marginRight: "auto" }}>Case Details</h2>
+    <div style={shell}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          justifyContent: "space-between",
+        }}
+      >
+        <h2 style={{ fontWeight: 900, margin: 0 }}>Case Details</h2>
         <Link
-          to="/app/counseling"
-          style={{ textDecoration: "none", color: "var(--primary)", fontWeight: 900 }}
+          to={listHref}
+          title="Back to Counseling Cases"
+          aria-label="Back to Counseling Cases"
+          style={backIcon}
         >
-          ← Back
+          <ArrowLeft size={18} />
         </Link>
       </div>
 
-      {/* TOP DETAILS */}
       <div style={card}>
-        <div style={{ fontSize: 14, opacity: 0.8 }}>Student</div>
-        <div style={{ fontSize: 20, fontWeight: 900 }}>{studentName}</div>
-        <div style={{ opacity: 0.85 }}>{student?.email ?? "—"}</div>
+        <div style={label}>Student</div>
+        <div style={value}>{studentName}</div>
+        <div style={{ opacity: 0.82, marginTop: 4 }}>{student?.email ?? "-"}</div>
 
-        <div style={{ marginTop: 16, display: "grid", gap: 12, gridTemplateColumns: "repeat(4, 1fr)" }}>
+        <div
+          style={{
+            marginTop: 16,
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+          }}
+        >
           <div>
             <div style={label}>Academic Year</div>
-            <div style={{ fontWeight: 800 }}>{ay?.name ?? "—"}</div>
+            <div style={{ fontWeight: 800 }}>{ay?.name ?? "-"}</div>
           </div>
-
           <div>
             <div style={label}>College</div>
-            <div style={{ fontWeight: 800 }}>{college?.name ?? "—"}</div>
+            <div style={{ fontWeight: 800 }}>{college?.name ?? "-"}</div>
           </div>
-
           <div>
             <div style={label}>Year Level</div>
-            <div style={{ fontWeight: 800 }}>{yl?.name ?? "—"}</div>
+            <div style={{ fontWeight: 800 }}>{yl?.name ?? "-"}</div>
           </div>
-
           <div>
             <div style={label}>Date</div>
             <div style={{ fontWeight: 800 }}>{found.date}</div>
           </div>
         </div>
 
-        <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>
-          Case ID: <b>#{found.id}</b> • Created: <b>{found.createdAt}</b>
+        <div style={{ marginTop: 12, opacity: 0.74, fontSize: 13 }}>
+          Case ID: <b>#{found.id}</b> | Created: <b>{found.createdAt}</b>
         </div>
       </div>
 
-      {/* UPDATE */}
       <div style={card}>
-        <h3 style={{ marginBottom: 10 }}>Update Case</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 12 }}>Update Case</h3>
 
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 2fr" }}>
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "minmax(240px, 1fr) minmax(320px, 2fr)",
+          }}
+        >
           <div>
             <div style={label}>Status</div>
-            <select value={status} onChange={(e) => setStatus(e.target.value as CounselingCase["status"])} style={inputStyle}>
+            <DropdownSelect
+              value={status}
+              onChange={(e) => setStatus(e.target.value as CounselingCase["status"])}
+            >
               <option value="Pending">Pending</option>
               <option value="Ongoing">Ongoing</option>
               <option value="Completed">Completed</option>
-            </select>
+            </DropdownSelect>
           </div>
 
           <div>
             <div style={label}>Notes</div>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={textareaStyle} />
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              style={textareaStyle}
+              placeholder="Add progress notes, interventions, or outcome details..."
+            />
           </div>
         </div>
 
-        <div style={{ marginTop: 12, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button onClick={() => nav("/app/counseling")} style={ghostButton}>
+        <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={() => nav(listHref)} style={ghostButton}>
             Cancel
           </button>
           <button onClick={handleSave} style={primaryButton}>

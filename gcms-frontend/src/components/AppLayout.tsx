@@ -19,6 +19,7 @@ import {
   UsersRound,
   Share2,
   ClipboardList,
+  CalendarDays,
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
@@ -32,6 +33,12 @@ type NavItem = {
   roles: Role[];
   icon: React.ReactNode;
 };
+
+function formatRoleLabel(role: Role): string {
+  return role === "NON_TEACHING_PERSONNEL"
+    ? "Non Teaching Personnel"
+    : role.replaceAll("_", " ");
+}
 
 /** ✅ Slide-in Toast (no library) */
 function Toast({
@@ -252,7 +259,6 @@ export default function AppLayout() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [logoutOpen, logoutLoading]);
 
   const navItems: NavItem[] = useMemo(
@@ -260,7 +266,13 @@ export default function AppLayout() {
       {
         label: "Dashboard",
         to: "/app/dashboard",
-        roles: ["ADMIN", "COUNSELOR", "STUDENT"],
+        roles: [
+          "ADMIN",
+          "COUNSELOR",
+          "TEACHER",
+          "NON_TEACHING_PERSONNEL",
+          "STUDENT",
+        ],
         icon: <Home size={18} />,
       },
 
@@ -294,7 +306,7 @@ export default function AppLayout() {
       {
         label: "Referrals",
         to: "/app/referrals",
-        roles: ["COUNSELOR", "ADMIN"],
+        roles: ["COUNSELOR", "TEACHER", "NON_TEACHING_PERSONNEL", "ADMIN"],
         icon: <Share2 size={18} />,
       },
 
@@ -326,7 +338,13 @@ export default function AppLayout() {
       {
         label: "Account",
         to: "/app/account",
-        roles: ["STUDENT"],
+        roles: [
+          "ADMIN",
+          "COUNSELOR",
+          "TEACHER",
+          "NON_TEACHING_PERSONNEL",
+          "STUDENT",
+        ],
         icon: <UserRound size={18} />,
       },
     ],
@@ -347,6 +365,26 @@ export default function AppLayout() {
   if (!user) return <Navigate to="/login" replace />;
 
   const sidebarWidth = collapsed ? 86 : 276;
+  const isTeacherPortalLayout =
+    (user.role === "TEACHER" || user.role === "NON_TEACHING_PERSONNEL") &&
+    (loc.pathname.startsWith("/app/referrals") ||
+      loc.pathname.startsWith("/app/account"));
+  const teacherAcademicYear = useMemo(() => {
+    try {
+      const raw = localStorage.getItem("gcms_mock_academic_years_v1");
+      if (!raw) return "Academic Year";
+      const parsed = JSON.parse(raw) as Array<{
+        name?: unknown;
+        isActive?: unknown;
+      }>;
+      if (!Array.isArray(parsed) || parsed.length === 0) return "Academic Year";
+      const active = parsed.find((x) => Boolean(x?.isActive)) ?? parsed[0];
+      const name = String(active?.name ?? "").trim();
+      return name || "Academic Year";
+    } catch {
+      return "Academic Year";
+    }
+  }, [loc.pathname]);
 
   const iconBox = (active: boolean) => ({
     width: 32,
@@ -390,6 +428,240 @@ export default function AppLayout() {
     gap: 10,
     boxShadow: "0 18px 32px rgba(245,158,11,0.22)",
   };
+
+  if (isTeacherPortalLayout) {
+    const topLinkStyle = (active: boolean): React.CSSProperties => ({
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      textDecoration: "none",
+      color: active ? "white" : "rgba(15,23,42,0.9)",
+      fontWeight: 900,
+      fontSize: 14,
+      padding: "8px 14px",
+      borderRadius: 10,
+      border: active
+        ? "1px solid rgba(15,23,42,1)"
+        : "1px solid rgba(15,23,42,0.14)",
+      background: active ? "rgba(15,23,42,1)" : "rgba(255,255,255,1)",
+      boxShadow: active ? "0 10px 24px rgba(15,23,42,0.25)" : "none",
+      transition: "all .14s ease",
+    });
+
+    return (
+      <div style={{ minHeight: "100vh", background: "#f5f7fb" }}>
+        <Toast
+          open={toast.open}
+          message={toast.message}
+          tone={toast.tone}
+          onClose={() => setToast((p) => ({ ...p, open: false }))}
+        />
+
+        <Modal
+          open={logoutOpen}
+          onClose={() => !logoutLoading && setLogoutOpen(false)}
+          title="Confirm Logout"
+        >
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ fontWeight: 950, opacity: 0.92 }}>
+              Are you sure you want to log out?
+            </div>
+
+            <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 850 }}>
+              Press <b>ESC</b> to cancel • Press <b>Enter</b> to confirm
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                onClick={() => setLogoutOpen(false)}
+                disabled={logoutLoading}
+                style={cancelBtn}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleLogout}
+                disabled={logoutLoading}
+                style={confirmBtn}
+              >
+                {logoutLoading ? (
+                  <>
+                    <span
+                      aria-hidden
+                      style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: 99,
+                        border: "2px solid rgba(9,14,25,0.35)",
+                        borderTopColor: "rgba(9,14,25,0.95)",
+                        display: "inline-block",
+                        animation: "spin 0.8s linear infinite",
+                      }}
+                    />
+                    Logging out...
+                  </>
+                ) : (
+                  "Yes, Logout"
+                )}
+              </button>
+            </div>
+
+            <style>{`
+              @keyframes spin { 
+                from { transform: rotate(0deg); } 
+                to { transform: rotate(360deg); } 
+              }
+            `}</style>
+          </div>
+        </Modal>
+
+        <header
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 40,
+            background: "rgba(255,255,255,0.96)",
+            borderBottom: "1px solid rgba(15,23,42,0.10)",
+            boxShadow: "0 10px 28px rgba(15,23,42,0.06)",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 1240,
+              margin: "0 auto",
+              padding: "12px 24px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 20,
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 20,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 42,
+                    height: 42,
+                    borderRadius: 13,
+                    background: "rgba(37,99,235,0.10)",
+                    border: "1px solid rgba(37,99,235,0.22)",
+                    display: "grid",
+                    placeItems: "center",
+                    overflow: "hidden",
+                  }}
+                >
+                  <img
+                    src={logo}
+                    alt="GCMS Logo"
+                    style={{ width: "82%", height: "82%", objectFit: "contain" }}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontWeight: 1000, fontSize: 15, color: "#0f172a" }}>
+                    GCMS
+                  </div>
+                  <div style={{ fontSize: 11.5, opacity: 0.7, color: "#334155" }}>
+                    Guidance and Counselling Management System
+                  </div>
+                </div>
+              </div>
+
+              <nav
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <Link
+                  to="/app/referrals"
+                  style={topLinkStyle(isActive("/app/referrals"))}
+                >
+                  <Share2 size={14} />
+                  Referrals
+                </Link>
+                <Link to="/app/account" style={topLinkStyle(isActive("/app/account"))}>
+                  <UserRound size={14} />
+                  Account
+                </Link>
+              </nav>
+            </div>
+
+            <div
+              style={{
+                alignItems: "center",
+                display: "flex",
+                gap: 10,
+              }}
+            >
+              <div
+                style={{
+                  height: 40,
+                  borderRadius: 12,
+                  border: "1px solid rgba(37,99,235,0.24)",
+                  background: "rgba(37,99,235,0.08)",
+                  color: "rgba(15,23,42,0.9)",
+                  fontWeight: 900,
+                  fontSize: 13,
+                  padding: "0 12px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+                title="Active Academic Year"
+              >
+                <CalendarDays size={14} />
+                {teacherAcademicYear}
+              </div>
+
+              <button
+                onClick={() => setLogoutOpen(true)}
+                title="Logout"
+                style={{
+                  height: 40,
+                  padding: "0 14px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(251,191,36,0.30)",
+                  background:
+                    "linear-gradient(135deg, rgba(251,191,36,1) 0%, rgba(245,158,11,1) 100%)",
+                  color: "rgba(9,14,25,1)",
+                  fontWeight: 1000,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  boxShadow: "0 14px 26px rgba(245,158,11,0.2)",
+                }}
+              >
+                <LogOut size={16} />
+                Logout
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main
+          style={{
+            maxWidth: 1240,
+            margin: "0 auto",
+            padding: "28px 24px 40px",
+          }}
+        >
+          <Outlet />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -553,7 +825,7 @@ export default function AppLayout() {
               {user.fname} {user.lname}
             </div>
             <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
-              {user.role}
+              {formatRoleLabel(user.role)}
             </div>
           </div>
         )}
@@ -635,7 +907,7 @@ export default function AppLayout() {
           }}
         />
 
-        <div style={{ padding: "0 6px 6px" }}>
+        <div style={{ padding: "0 6px 6px", display: "grid", gap: 8 }}>
           <button
             onClick={() => setLogoutOpen(true)}
             title="Logout"

@@ -1,5 +1,13 @@
-import React, { useMemo } from "react";
-import { Link, useParams, Navigate } from "react-router-dom";
+import React, { useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  GraduationCap,
+  ListChecks,
+  StickyNote,
+  UserRound,
+} from "lucide-react";
+import { useParams, Navigate, useNavigate } from "react-router-dom";
 import { useGCMS, fullName } from "../store/gcmsStore";
 
 const pageStyle: React.CSSProperties = {
@@ -30,22 +38,31 @@ const divider: React.CSSProperties = {
   margin: "12px 0",
 };
 
-const pill: React.CSSProperties = {
+const chip: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
+  gap: 6,
   padding: "6px 10px",
   borderRadius: 999,
-  border: "1px solid rgba(15,23,42,0.10)",
-  background: "rgba(255,255,255,0.9)",
+  border: "1px solid rgba(15,23,42,0.14)",
+  background: "rgba(255,255,255,0.96)",
   fontSize: 12,
   fontWeight: 900,
   color: "#0f172a",
-  textDecoration: "none",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  fontSize: 12,
+  color: "#64748b",
+  fontWeight: 900,
 };
 
 function formatDate(d: string) {
   const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "—";
+  if (Number.isNaN(dt.getTime())) return "-";
   return dt.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -53,9 +70,46 @@ function formatDate(d: string) {
   });
 }
 
+function statusColor(status: string) {
+  if (status === "pending") return "#b45309";
+  if (status === "reviewed") return "#1d4ed8";
+  return "#166534";
+}
+
+function parseReferralNotes(notes?: string) {
+  const lines = String(notes || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let name = "";
+  let course = "";
+  const extra: string[] = [];
+
+  for (const line of lines) {
+    if (/^name\s*:/i.test(line)) {
+      name = line.replace(/^name\s*:/i, "").trim();
+      continue;
+    }
+    if (/^course\s*:/i.test(line)) {
+      course = line.replace(/^course\s*:/i, "").trim();
+      continue;
+    }
+    extra.push(line);
+  }
+
+  return {
+    name,
+    course,
+    extraText: extra.join("\n"),
+  };
+}
+
 export default function MyReferralView() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const referralId = Number(id);
+  const [backActive, setBackActive] = useState(false);
 
   const { currentUser, referrals, users } = useGCMS();
   const myUserId = currentUser?.users_id;
@@ -73,6 +127,11 @@ export default function MyReferralView() {
   if (!r) return <Navigate to="/app/my-referrals" replace />;
 
   const refBy = users.find((u) => u.users_id === r.referred_by_user_id);
+  const parsed = parseReferralNotes(r.notes);
+  const reasonList = r.reason
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
   return (
     <div style={pageStyle}>
@@ -93,14 +152,35 @@ export default function MyReferralView() {
               Full details of your referral record.
             </p>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link to="/app/my-referrals" style={pill}>
-              ← Back
-            </Link>
-            <Link to="/app/dashboard" style={pill}>
-              Dashboard
-            </Link>
-          </div>
+
+          <button
+            type="button"
+            onMouseDown={() => setBackActive(true)}
+            onMouseUp={() => setBackActive(false)}
+            onMouseLeave={() => setBackActive(false)}
+            onClick={() => navigate("/app/my-referrals")}
+            title="Back"
+            aria-label="Back"
+            style={{
+              width: 46,
+              height: 46,
+              borderRadius: 999,
+              border: backActive
+                ? "1px solid rgba(2,6,23,0.98)"
+                : "1px solid rgba(15,23,42,0.16)",
+              background: backActive
+                ? "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))"
+                : "white",
+              color: backActive ? "white" : "#0f172a",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
+            }}
+          >
+            <ArrowLeft size={18} />
+          </button>
         </div>
 
         <div style={cardStyle}>
@@ -113,45 +193,98 @@ export default function MyReferralView() {
             }}
           >
             <div style={{ fontWeight: 950 }}>Status</div>
-            <span style={pill}>{r.status.toUpperCase()}</span>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 950,
+                color: statusColor(r.status),
+                textTransform: "uppercase",
+                letterSpacing: 0.3,
+              }}
+            >
+              {r.status}
+            </span>
           </div>
 
           <div style={divider} />
 
           <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: 12,
+            }}
           >
             <div>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
+              <div style={labelStyle}>
+                <CalendarDays size={14} />
                 Referred Date
               </div>
-              <div style={{ fontWeight: 950 }}>
-                {formatDate(r.referred_date)}
-              </div>
+              <div style={{ fontWeight: 950 }}>{formatDate(r.referred_date)}</div>
             </div>
+
             <div>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
+              <div style={labelStyle}>
+                <UserRound size={14} />
                 Referred By
               </div>
-              <div style={{ fontWeight: 950 }}>
-                {refBy ? fullName(refBy) : "—"}
-              </div>
+              <div style={{ fontWeight: 950 }}>{refBy ? fullName(refBy) : "-"}</div>
             </div>
 
-            <div style={{ gridColumn: "1 / -1" }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
-                Reason
+            <div>
+              <div style={labelStyle}>
+                <UserRound size={14} />
+                Name
               </div>
-              <div style={{ fontWeight: 800 }}>{r.reason}</div>
+              <div style={{ fontWeight: 950 }}>{parsed.name || fullName(currentUser)}</div>
             </div>
 
-            <div style={{ gridColumn: "1 / -1" }}>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
-                Notes
+            <div>
+              <div style={labelStyle}>
+                <GraduationCap size={14} />
+                Course
               </div>
-              <div style={{ color: "#334155", fontWeight: 700 }}>
-                {r.notes ?? "No notes."}
-              </div>
+              <div style={{ fontWeight: 950 }}>{parsed.course || "-"}</div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <div style={labelStyle}>
+              <ListChecks size={14} />
+              Reason
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+              {reasonList.length > 0 ? (
+                reasonList.map((reason) => (
+                  <span key={reason} style={chip}>
+                    {reason}
+                  </span>
+                ))
+              ) : (
+                <span style={{ color: "#64748b", fontWeight: 700 }}>-</span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <div style={labelStyle}>
+              <StickyNote size={14} />
+              Notes
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                border: "1px solid rgba(15,23,42,0.10)",
+                borderRadius: 12,
+                background: "rgba(248,250,252,0.92)",
+                padding: "10px 12px",
+                color: "#334155",
+                fontWeight: 700,
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.45,
+              }}
+            >
+              {parsed.extraText || "No notes."}
             </div>
           </div>
         </div>

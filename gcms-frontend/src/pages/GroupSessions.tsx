@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Printer } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { AlertTriangle, Eye, History, Link2, List, Paperclip, Printer } from "lucide-react";
 import Modal from "../components/Modal";
+import DropdownSelect from "../components/DropdownSelect";
+import { createGroupSession, listGroupSessions } from "../lib/entitiesApi";
+import { useAuthStore } from "../store/authStore";
+import { postJSON } from "../lib/api";
 
-type Role = "ADMIN" | "COUNSELOR" | "STUDENT";
+type Role =
+  | "ADMIN"
+  | "COUNSELOR"
+  | "TEACHER"
+  | "NON_TEACHING_PERSONNEL"
+  | "STUDENT";
 
 type User = {
   id: number;
@@ -23,6 +33,12 @@ type YearLevel = {
   collegeId: number;
   academicYearId: number;
 };
+type Course = {
+  id: number;
+  name: string;
+  collegeId: number;
+};
+type CoursesResponse = { ok: boolean; courses?: Course[] };
 
 type GroupSession = {
   id: number;
@@ -64,7 +80,23 @@ function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
+function parsePositiveInt(raw: string | null): number {
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function userCourseId(u: User): number {
+  const raw = (u as User & { courseId?: unknown; course_id?: unknown }).courseId ??
+    (u as User & { courseId?: unknown; course_id?: unknown }).course_id ??
+    0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function GroupSessions() {
+  const currentUser = useAuthStore((s) => s.user);
+  const [searchParams, setSearchParams] = useSearchParams();
   const users = useMemo<User[]>(() => load<User[]>(USERS_KEY, []), []);
   const colleges = useMemo<College[]>(
     () => load<College[]>(COLLEGES_KEY, []),
@@ -97,29 +129,85 @@ export default function GroupSessions() {
     [years],
   );
 
-  const [selectedAyId, setSelectedAyId] = useState<number>(activeAyId);
-  const [filterCollegeId, setFilterCollegeId] = useState<number>(
-    colleges[0]?.id ?? 0,
+  const selectedAyId = activeAyId;
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [filterCollegeId, setFilterCollegeId] = useState<number>(() => {
+    const fromQuery = parsePositiveInt(searchParams.get("collegeId"));
+    if (fromQuery && colleges.some((c) => c.id === fromQuery)) return fromQuery;
+    return 0;
+  });
+  const filteredCourses = useMemo(
+    () =>
+      filterCollegeId
+        ? courses.filter((c) => c.collegeId === filterCollegeId)
+        : courses,
+    [courses, filterCollegeId],
   );
+  const [filterCourseId, setFilterCourseId] = useState<number>(() =>
+    parsePositiveInt(searchParams.get("courseId")),
+  );
+
+  useEffect(() => {
+    if (filterCourseId && !filteredCourses.some((c) => c.id === filterCourseId)) {
+      setFilterCourseId(0);
+    }
+  }, [filterCourseId, filteredCourses]);
+
+  useEffect(() => {
+    let alive = true;
+    postJSON<CoursesResponse>("/courses_api.php", { action: "list" })
+      .then((res) => {
+        if (!alive) return;
+        setCourses(res.courses ?? []);
+      })
+      .catch(() => {
+        if (!alive) return;
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const filteredYearLevels = useMemo(
     () =>
       yearLevels.filter(
         (yl) =>
           yl.academicYearId === selectedAyId &&
-          yl.collegeId === filterCollegeId,
+          (filterCollegeId ? yl.collegeId === filterCollegeId : true),
       ),
     [yearLevels, selectedAyId, filterCollegeId],
   );
 
-  const [filterYearLevelId, setFilterYearLevelId] = useState<number>(
-    filteredYearLevels[0]?.id ?? 0,
+  const [filterYearLevelId, setFilterYearLevelId] = useState<number>(() =>
+    parsePositiveInt(searchParams.get("yearLevelId")),
   );
+  const [showHistory, setShowHistory] = useState<boolean>(() => {
+    return searchParams.get("tab") === "history";
+  });
 
   useEffect(() => {
-    if (filteredYearLevels.length)
-      setFilterYearLevelId(filteredYearLevels[0].id);
-  }, [filteredYearLevels]);
+    if (filteredYearLevels.length === 0) {
+      if (filterYearLevelId !== 0) setFilterYearLevelId(0);
+      return;
+    }
+    const exists = filteredYearLevels.some((yl) => yl.id === filterYearLevelId);
+    if (!exists && filterYearLevelId !== 0) setFilterYearLevelId(0);
+  }, [filteredYearLevels, filterYearLevelId]);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (filterCollegeId) next.set("collegeId", String(filterCollegeId));
+    if (filterCourseId) next.set("courseId", String(filterCourseId));
+    if (filterYearLevelId) next.set("yearLevelId", String(filterYearLevelId));
+    if (showHistory) next.set("tab", "history");
+    setSearchParams(next, { replace: true });
+  }, [
+    filterCollegeId,
+    filterCourseId,
+    filterYearLevelId,
+    showHistory,
+    setSearchParams,
+  ]);
 
   const [sessions, setSessions] = useState<GroupSession[]>(() =>
     load<GroupSession[]>(GS_KEY, []),
@@ -127,6 +215,26 @@ export default function GroupSessions() {
   const [members, setMembers] = useState<GroupSessionMember[]>(() =>
     load<GroupSessionMember[]>(GSM_KEY, []),
   );
+
+  useEffect(() => {
+    let alive = true;
+    listGroupSessions()
+      .then((res) => {
+        if (!alive) return;
+        const nextSessions = res.sessions ?? [];
+        const nextMembers = res.members ?? [];
+        setSessions(nextSessions);
+        setMembers(nextMembers);
+        save(GS_KEY, nextSessions);
+        save(GSM_KEY, nextMembers);
+      })
+      .catch(() => {
+        // Keep cached data when API is unreachable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const visibleSessions = useMemo(() => {
     return sessions
@@ -137,12 +245,27 @@ export default function GroupSessions() {
       )
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [sessions, selectedAyId, filterCollegeId, filterYearLevelId]);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const activeSessions = useMemo(
+    () => visibleSessions.filter((s) => s.date >= todayIso),
+    [visibleSessions, todayIso],
+  );
+  const historySessions = useMemo(
+    () => visibleSessions.filter((s) => s.date < todayIso),
+    [visibleSessions, todayIso],
+  );
+  const displaySessions = showHistory ? historySessions : activeSessions;
 
   const labelUser = (id: number) => {
     const u = users.find((x) => x.id === id);
     if (!u) return "Unknown";
     const full = `${u.fname} ${u.mname ? u.mname + " " : ""}${u.lname}`;
     return `${full} (${u.email})`;
+  };
+  const labelUserName = (id: number) => {
+    const u = users.find((x) => x.id === id);
+    if (!u) return "Unknown";
+    return `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`.trim();
   };
 
   const labelCollege = (id: number) =>
@@ -154,18 +277,30 @@ export default function GroupSessions() {
   const memberCount = (sessionId: number) =>
     members.filter((m) => m.groupSessionId === sessionId).length;
 
+  const filterQuery = useMemo(() => {
+    const qs = searchParams.toString();
+    return qs ? `?${qs}` : "";
+  }, [searchParams]);
+
   // ===== Create Session Modal State =====
   const [open, setOpen] = useState(false);
 
   const filteredStudents = useMemo(() => {
     return students.filter(
-      (s) =>
-        s.collegeId === filterCollegeId && s.yearLevelId === filterYearLevelId,
+      (s) => {
+        const sid = userCourseId(s);
+        const matchesCourse = !filterCourseId || sid === 0 || sid === filterCourseId;
+        return (
+          s.collegeId === filterCollegeId &&
+          s.yearLevelId === filterYearLevelId &&
+          matchesCourse
+        );
+      },
     );
-  }, [students, filterCollegeId, filterYearLevelId]);
+  }, [students, filterCollegeId, filterYearLevelId, filterCourseId]);
 
   const [counselorUserId, setCounselorUserId] = useState<number>(
-    counselors[0]?.id ?? 0,
+    currentUser?.id ?? counselors[0]?.id ?? 0,
   );
   const [date, setDate] = useState("");
   const [location, setLocation] = useState("");
@@ -176,14 +311,31 @@ export default function GroupSessions() {
 
   useEffect(() => {
     setSelectedStudentIds([]);
-  }, [filterCollegeId, filterYearLevelId, selectedAyId]);
+  }, [filterCollegeId, filterCourseId, filterYearLevelId, selectedAyId]);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      setCounselorUserId(currentUser.id);
+    } else if (!counselorUserId && counselors[0]?.id) {
+      setCounselorUserId(counselors[0].id);
+    }
+  }, [currentUser?.id, counselorUserId, counselors]);
 
   // ===== Refs for auto-scroll / focus =====
-  const counselorRef = useRef<HTMLSelectElement | null>(null);
+  const counselorRef = useRef<HTMLInputElement | null>(null);
   const dateRef = useRef<HTMLInputElement | null>(null);
   const locationRef = useRef<HTMLInputElement | null>(null);
   const topicRef = useRef<HTMLInputElement | null>(null);
   const membersRef = useRef<HTMLDivElement | null>(null);
+  const attachmentFileRef = useRef<HTMLInputElement | null>(null);
+
+  const counselorDisplay = useMemo(() => {
+    if (currentUser) {
+      return `${currentUser.fname} ${currentUser.lname} (${currentUser.email})`;
+    }
+    if (counselorUserId) return labelUser(counselorUserId);
+    return "No counselor selected";
+  }, [currentUser, counselorUserId, users]);
 
   const toggleStudent = (id: number) => {
     setSelectedStudentIds((prev) =>
@@ -215,56 +367,62 @@ export default function GroupSessions() {
       return focusAndScroll(membersRef.current);
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     // safety
     if (!canCreate) return;
 
-    const nextId = sessions.length
-      ? Math.max(...sessions.map((s) => s.id)) + 1
-      : 1;
+    try {
+      const res = await createGroupSession({
+        academicYearId: selectedAyId,
+        collegeId: filterCollegeId,
+        yearLevelId: filterYearLevelId,
+        counselorUserId,
+        date,
+        location: location.trim(),
+        topic: topic.trim(),
+        notes: notes.trim() ? notes.trim() : undefined,
+        attachment: attachment.trim() ? attachment.trim() : undefined,
+        studentIds: selectedStudentIds,
+      });
 
-    const newSession: GroupSession = {
-      id: nextId,
-      academicYearId: selectedAyId,
-      collegeId: filterCollegeId,
-      yearLevelId: filterYearLevelId,
-      counselorUserId,
-      date,
-      location: location.trim(),
-      topic: topic.trim(),
-      notes: notes.trim() ? notes.trim() : undefined,
-      attachment: attachment.trim() ? attachment.trim() : undefined,
-      createdAt: new Date().toISOString().slice(0, 10),
-    };
+      const nextSessions = res.sessions ?? [];
+      const nextMembers = res.members ?? [];
+      setSessions(nextSessions);
+      setMembers(nextMembers);
+      save(GS_KEY, nextSessions);
+      save(GSM_KEY, nextMembers);
 
-    const nextSessions = [newSession, ...sessions];
-    setSessions(nextSessions);
-    save(GS_KEY, nextSessions);
+      // reset
+      setDate("");
+      setLocation("");
+      setTopic("");
+      setNotes("");
+      setAttachment("");
+      setSelectedStudentIds([]);
+      setOpen(false);
+    } catch (e: any) {
+      alert(e?.message || "Failed to create group session.");
+    }
+  };
 
-    const nextMemberIdStart = members.length
-      ? Math.max(...members.map((m) => m.id)) + 1
-      : 1;
+  const handleAttachFileClick = () => {
+    attachmentFileRef.current?.click();
+  };
 
-    const newMembers: GroupSessionMember[] = selectedStudentIds.map(
-      (sid, idx) => ({
-        id: nextMemberIdStart + idx,
-        groupSessionId: nextId,
-        studentUserId: sid,
-      }),
-    );
+  const handleAttachmentFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAttachment(`file:${file.name}`);
+  };
 
-    const nextMembers = [...newMembers, ...members];
-    setMembers(nextMembers);
-    save(GSM_KEY, nextMembers);
-
-    // reset
-    setDate("");
-    setLocation("");
-    setTopic("");
-    setNotes("");
-    setAttachment("");
-    setSelectedStudentIds([]);
-    setOpen(false);
+  const handleAttachLinkClick = () => {
+    const raw = window.prompt("Paste attachment link");
+    if (raw === null) return;
+    const link = raw.trim();
+    if (!link) return;
+    setAttachment(link);
   };
 
   // ===== Call Slip Print =====
@@ -583,63 +741,79 @@ export default function GroupSessions() {
         <h2 style={{ fontWeight: 800, marginRight: "auto" }}>Group Sessions</h2>
 
         <div style={{ display: "grid", gap: 6 }}>
-          <div style={label}>Academic Year</div>
-          <select
-            value={selectedAyId}
-            onChange={(e) => setSelectedAyId(Number(e.target.value))}
-            style={inputStyle}
-          >
-            {years.map((ay) => (
-              <option key={ay.id} value={ay.id}>
-                {ay.name} {ay.isActive ? "(Active)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
           <div style={label}>College</div>
-          <select
+          <DropdownSelect
             value={filterCollegeId}
             onChange={(e) => setFilterCollegeId(Number(e.target.value))}
-            style={inputStyle}
           >
+            <option value={0}>All colleges</option>
             {colleges.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
-          </select>
+          </DropdownSelect>
+        </div>
+
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={label}>Course</div>
+          <DropdownSelect
+            value={filterCourseId}
+            onChange={(e) => setFilterCourseId(Number(e.target.value))}
+          >
+            <option value={0}>
+              {filteredCourses.length ? "All courses" : "No courses found"}
+            </option>
+            {filteredCourses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </DropdownSelect>
         </div>
 
         <div style={{ display: "grid", gap: 6 }}>
           <div style={label}>Year Level</div>
-          <select
+          <DropdownSelect
             value={filterYearLevelId}
             onChange={(e) => setFilterYearLevelId(Number(e.target.value))}
-            style={inputStyle}
           >
+            <option value={0}>All year levels</option>
             {filteredYearLevels.map((yl) => (
               <option key={yl.id} value={yl.id}>
                 {yl.name}
               </option>
             ))}
-          </select>
+          </DropdownSelect>
         </div>
 
         <button onClick={() => setOpen(true)} style={primaryButton}>
           + Create Session
         </button>
+        <button
+          onClick={() => setShowHistory((v) => !v)}
+          style={ghostButton}
+          title={showHistory ? "Show active sessions" : "Show session history"}
+          aria-label={showHistory ? "Show active sessions" : "Show session history"}
+        >
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {showHistory ? <List size={16} /> : <History size={16} />}
+            {showHistory ? "Active Sessions" : "Session History"}
+          </span>
+        </button>
       </div>
 
       {/* List */}
       <div style={card}>
-        <h3 style={{ marginBottom: 10 }}>Session List</h3>
+        <h3 style={{ marginBottom: 10 }}>
+          {showHistory ? "Session History" : "Session List"}
+        </h3>
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               <th style={th}>Topic</th>
+              <th style={th}>Location</th>
               <th style={th}>Date</th>
               <th style={th}>Counselor</th>
               <th style={th}>Members</th>
@@ -648,25 +822,25 @@ export default function GroupSessions() {
             </tr>
           </thead>
           <tbody>
-            {visibleSessions.length === 0 ? (
+            {displaySessions.length === 0 ? (
               <tr>
-                <td style={td} colSpan={6}>
+                <td style={td} colSpan={7}>
                   <span style={{ opacity: 0.8 }}>
-                    No group sessions found for this filter.
+                    {showHistory
+                      ? "No past sessions found for this filter."
+                      : "No active sessions found for this filter."}
                   </span>
                 </td>
               </tr>
             ) : (
-              visibleSessions.map((s) => (
+              displaySessions.map((s) => (
                 <tr key={s.id}>
                   <td style={td}>
                     <div style={{ fontWeight: 900 }}>{s.topic}</div>
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>
-                      {s.location}
-                    </div>
                   </td>
-                  <td style={td}>{s.date}</td>
-                  <td style={td}>{labelUser(s.counselorUserId)}</td>
+                  <td style={td}>{s.location || "-"}</td>
+                  <td style={td}>{fmtLongDate(s.date)}</td>
+                  <td style={td}>{labelUserName(s.counselorUserId)}</td>
                   <td style={td}>
                     <b>{memberCount(s.id)}</b>
                   </td>
@@ -679,13 +853,23 @@ export default function GroupSessions() {
                     </div>
                   </td>
                   <td style={td}>
-                    <button
-                      style={iconButton}
-                      title="Print Call Slip"
-                      onClick={() => openCallSlipPrint(s)}
-                    >
-                      <Printer size={18} />
-                    </button>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <button
+                        style={iconButton}
+                        title="Print Call Slip"
+                        onClick={() => openCallSlipPrint(s)}
+                      >
+                        <Printer size={18} />
+                      </button>
+                      <Link
+                        to={`/app/group-sessions/${s.id}${filterQuery}`}
+                        title="View session"
+                        aria-label="View session"
+                        style={{ ...iconButton, textDecoration: "none" }}
+                      >
+                        <Eye size={18} />
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -710,48 +894,31 @@ export default function GroupSessions() {
                 color: "#b42318",
                 padding: "10px 12px",
                 borderRadius: 12,
-                fontWeight: 800,
+                fontWeight: 700,
                 fontSize: 13,
                 display: "flex",
                 gap: 10,
-                alignItems: "flex-start",
+                alignItems: "center",
               }}
             >
-              <span style={{ fontSize: 16, lineHeight: "16px" }}>⚠️</span>
-              <div>
-                <div style={{ fontWeight: 900 }}>
-                  Before you can create a session:
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  Missing: <b>{missing.join(", ")}</b>
-                </div>
-                <div style={{ marginTop: 6, opacity: 0.9, fontWeight: 700 }}>
-                  Click <b>Create</b> and we’ll jump to the first missing field.
-                </div>
-              </div>
+              <AlertTriangle size={16} />
+              <div>Reminder: complete {missing.join(", ")}.</div>
             </div>
           )}
 
           <div>
             <div style={label}>Counselor</div>
-            <select
+            <input
               ref={counselorRef}
-              value={counselorUserId}
-              onChange={(e) => setCounselorUserId(Number(e.target.value))}
-              style={inputStyle}
-            >
-              {counselors.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {`${c.fname} ${c.mname ? c.mname + " " : ""}${c.lname}`} (
-                  {c.email})
-                </option>
-              ))}
-            </select>
-            {counselors.length === 0 && (
-              <div style={{ marginTop: 8, opacity: 0.8, fontSize: 13 }}>
-                No counselors found. Add counselor users in User Management.
-              </div>
-            )}
+              value={counselorDisplay}
+              readOnly
+              style={{
+                ...inputStyle,
+                background: "rgba(15,23,42,0.06)",
+                color: "rgba(15,23,42,0.85)",
+                cursor: "default",
+              }}
+            />
           </div>
 
           <div
@@ -792,13 +959,48 @@ export default function GroupSessions() {
           </div>
 
           <div>
-            <div style={label}>Attachment (optional)</div>
+            <div style={label}>Attachment</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button
+                type="button"
+                onClick={handleAttachFileClick}
+                style={{
+                  ...ghostButton,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  height: 36,
+                }}
+              >
+                <Paperclip size={14} />
+                Attach File
+              </button>
+              <button
+                type="button"
+                onClick={handleAttachLinkClick}
+                style={{
+                  ...ghostButton,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  height: 36,
+                }}
+              >
+                <Link2 size={14} />
+                Attach Link
+              </button>
+            </div>
             <input
-              value={attachment}
-              onChange={(e) => setAttachment(e.target.value)}
-              placeholder="filename or link (mock)"
-              style={inputStyle}
+              ref={attachmentFileRef}
+              type="file"
+              onChange={handleAttachmentFileChange}
+              style={{ display: "none" }}
             />
+            {attachment ? (
+              <div style={{ fontSize: 12, opacity: 0.8 }}>
+                Selected: {attachment}
+              </div>
+            ) : null}
           </div>
 
           <div>
@@ -812,7 +1014,7 @@ export default function GroupSessions() {
 
           <div>
             <div style={label}>
-              Members (Students filtered by College + Year Level)
+              Members (Students filtered by College + Course + Year Level)
             </div>
 
             <div
@@ -828,8 +1030,8 @@ export default function GroupSessions() {
             >
               {filteredStudents.length === 0 ? (
                 <div style={{ opacity: 0.8, fontSize: 13 }}>
-                  No students found in this College + Year Level. Add students
-                  in User Management.
+                  No students found in this filter. Add students in User
+                  Management.
                 </div>
               ) : (
                 filteredStudents.map((s) => {

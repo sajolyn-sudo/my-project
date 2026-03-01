@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { CirclePlus, Eye, Printer } from "lucide-react";
 import {
   useGCMS,
   fullName,
@@ -7,6 +8,7 @@ import {
   type ReferralStatus,
   type User,
 } from "../store/gcmsStore";
+import { openReferralFormPrint } from "../lib/referralFormPrint";
 
 /** =======================
  *  Page styles
@@ -61,9 +63,13 @@ const btn: React.CSSProperties = {
 
 const btnPrimary: React.CSSProperties = {
   ...btn,
-  border: "1px solid rgba(99,102,241,0.35)",
-  background:
-    "linear-gradient(180deg, rgba(99,102,241,0.16), rgba(99,102,241,0.08))",
+  border: "1px solid rgba(15,23,42,0.7)",
+  background: "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))",
+  color: "white",
+  boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -120,6 +126,35 @@ const chip: React.CSSProperties = {
   color: "#0f172a",
 };
 
+const miniIconBtn: React.CSSProperties = {
+  height: 32,
+  width: 32,
+  borderRadius: 999,
+  border: "1px solid rgba(15,23,42,0.18)",
+  background: "white",
+  color: "#0f172a",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+};
+
+const filterChip = (active: boolean): React.CSSProperties => ({
+  height: 34,
+  padding: "0 12px",
+  borderRadius: 999,
+  border: active
+    ? "1px solid rgba(15,23,42,0.65)"
+    : "1px solid rgba(15,23,42,0.14)",
+  background: active
+    ? "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))"
+    : "white",
+  color: active ? "white" : "#0f172a",
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+});
+
 const referralReasons = [
   "Academics",
   "Attendance and Tardiness",
@@ -161,57 +196,60 @@ function formatDate(d: string) {
   });
 }
 
+function extractLabeledValue(text: string | undefined, label: string): string {
+  const source = String(text || "");
+  const chunks = source
+    .split(/\r?\n|\|/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const found = chunks.find((line) =>
+    line.toLowerCase().startsWith(`${label.toLowerCase()}:`),
+  );
+  if (!found) return "";
+  return found.slice(found.indexOf(":") + 1).trim();
+}
+
+function cleanDetailsText(text: string | undefined): string {
+  const source = String(text || "");
+  const chunks = source
+    .split(/\r?\n|\|/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^(name|course)\s*:/i.test(line));
+  return chunks.join("\n");
+}
+
+function splitReasons(reasonText: string): string[] {
+  return String(reasonText || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
 function ReferralChip({ status }: { status: ReferralStatus }) {
-  const palette =
+  const label =
     status === "pending"
-      ? {
-          bg: "rgba(245,158,11,0.14)",
-          br: "rgba(245,158,11,0.35)",
-          tx: "#92400e",
-          dot: "#f59e0b",
-          label: "Pending",
-        }
+      ? "Pending"
       : status === "reviewed"
-        ? {
-            bg: "rgba(59,130,246,0.14)",
-            br: "rgba(59,130,246,0.35)",
-            tx: "#1d4ed8",
-            dot: "#3b82f6",
-            label: "Reviewed",
-          }
-        : {
-            bg: "rgba(34,197,94,0.14)",
-            br: "rgba(34,197,94,0.35)",
-            tx: "#166534",
-            dot: "#22c55e",
-            label: "Resolved",
-          };
+        ? "Reviewed"
+        : "Resolved";
+  const color =
+    status === "pending"
+      ? "#b45309"
+      : status === "reviewed"
+        ? "#1d4ed8"
+        : "#166534";
 
   return (
     <span
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 999,
-        border: `1px solid ${palette.br}`,
-        background: palette.bg,
-        color: palette.tx,
-        fontSize: 12,
+        display: "inline-block",
+        color,
+        fontSize: 13,
         fontWeight: 950,
         whiteSpace: "nowrap",
       }}
     >
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 99,
-          background: palette.dot,
-        }}
-      />
-      {palette.label}
+      {label}
     </span>
   );
 }
@@ -304,16 +342,19 @@ function Modal({
 export default function MyReferrals() {
   const navigate = useNavigate();
   const { currentUser, users, referrals, setReferrals } = useGCMS();
+  const [directionFilter, setDirectionFilter] = useState<
+    "all" | "received" | "sent"
+  >("received");
 
   const myUserId = currentUser?.users_id;
 
-console.log("currentUser:", currentUser);
-console.log("myUserId:", myUserId);
-
-  const myReferrals = useMemo(() => {
+  const myRelatedReferrals = useMemo(() => {
     if (!myUserId) return [];
     return [...referrals]
-      .filter((r) => r.student_user_id === myUserId)
+      .filter(
+        (r) =>
+          r.student_user_id === myUserId || r.referred_by_user_id === myUserId,
+      )
       .sort(
         (a, b) =>
           new Date(b.referred_date).getTime() -
@@ -321,11 +362,36 @@ console.log("myUserId:", myUserId);
       );
   }, [myUserId, referrals]);
 
+  const visibleReferrals = useMemo(() => {
+    if (!myUserId) return [];
+    if (directionFilter === "received") {
+      return myRelatedReferrals.filter((r) => r.student_user_id === myUserId);
+    }
+    if (directionFilter === "sent") {
+      return myRelatedReferrals.filter(
+        (r) => r.referred_by_user_id === myUserId,
+      );
+    }
+    return myRelatedReferrals;
+  }, [directionFilter, myRelatedReferrals, myUserId]);
+
+  const receivedCount = useMemo(
+    () =>
+      myRelatedReferrals.filter((r) => r.student_user_id === myUserId).length,
+    [myRelatedReferrals, myUserId],
+  );
+  const sentCount = useMemo(
+    () =>
+      myRelatedReferrals.filter((r) => r.referred_by_user_id === myUserId)
+        .length,
+    [myRelatedReferrals, myUserId],
+  );
+
   const [open, setOpen] = useState(false);
 
   // form state
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [time, setTime] = useState("09:00"); // ✅ preferred time
+  const [studentName, setStudentName] = useState("");
+  const [course, setCourse] = useState("");
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
 
@@ -337,6 +403,24 @@ console.log("myUserId:", myUserId);
   const getUserName = (id: number) => {
     const u = users.find((x) => x.users_id === id) as User | undefined;
     return u ? fullName(u) : "—";
+  };
+
+  const handlePrintReferral = (r: Referral) => {
+    const student = users.find((u) => u.users_id === r.student_user_id);
+    const referredBy = users.find((u) => u.users_id === r.referred_by_user_id);
+
+    const studentName =
+      extractLabeledValue(r.notes, "Name") || (student ? fullName(student) : "-");
+    const courseYearSection = extractLabeledValue(r.notes, "Course") || "-";
+
+    openReferralFormPrint({
+      studentName,
+      courseYearSection,
+      reasons: splitReasons(r.reason),
+      details: cleanDetailsText(r.notes),
+      facultyStaffName: referredBy ? fullName(referredBy) : "-",
+      referralDate: r.referred_date,
+    });
   };
 
   const toggleReason = (reason: string) => {
@@ -354,9 +438,14 @@ console.log("myUserId:", myUserId);
       alert("Please select at least one reason.");
       return;
     }
+    if (!studentName.trim() || !course.trim()) {
+      alert("Please provide name and course.");
+      return;
+    }
 
     const reasonText = selectedReasons.join(", ");
-    const scheduleText = `${date} ${time}`;
+    const metadata = [`Name: ${studentName.trim()}`, `Course: ${course.trim()}`];
+    if (notes.trim()) metadata.push(notes.trim());
 
     setReferrals((prev) => {
       const nextId = prev.reduce((m, x) => Math.max(m, x.referral_id), 0) + 1;
@@ -364,12 +453,10 @@ console.log("myUserId:", myUserId);
         referral_id: nextId,
         student_user_id: myUserId,
         referred_by_user_id: referredByDefault,
-        referred_date: date,
+        referred_date: new Date().toISOString().slice(0, 10),
         reason: reasonText,
         status: "pending",
-        notes: notes.trim()
-          ? `Schedule: ${scheduleText}\n${notes.trim()}`
-          : `Schedule: ${scheduleText}`,
+        notes: metadata.join("\n"),
       };
       return [r, ...prev];
     });
@@ -378,6 +465,8 @@ console.log("myUserId:", myUserId);
       referrals.reduce((m, x) => Math.max(m, x.referral_id), 0) + 1;
 
     setOpen(false);
+    setStudentName("");
+    setCourse("");
     setSelectedReasons([]);
     setNotes("");
 
@@ -425,7 +514,8 @@ console.log("myUserId:", myUserId);
           >
             {/* ✅ Back to Dashboard removed */}
             <button onClick={() => setOpen(true)} style={btnPrimary}>
-              + Create Referral
+              <CirclePlus size={16} />
+              Create Referral
             </button>
           </div>
         </div>
@@ -438,25 +528,66 @@ console.log("myUserId:", myUserId);
               justifyContent: "space-between",
               gap: 12,
               flexWrap: "wrap",
-              alignItems: "center",
+              alignItems: "flex-start",
             }}
           >
             <h3 style={sectionTitle}>All My Referrals</h3>
-            <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>
-              Total: {myReferrals.length}
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                style={filterChip(directionFilter === "received")}
+                onClick={() => setDirectionFilter("received")}
+              >
+                Received ({receivedCount})
+              </button>
+              <button
+                type="button"
+                style={filterChip(directionFilter === "sent")}
+                onClick={() => setDirectionFilter("sent")}
+              >
+                Sent Out ({sentCount})
+              </button>
+              <button
+                type="button"
+                style={filterChip(directionFilter === "all")}
+                onClick={() => setDirectionFilter("all")}
+              >
+                All ({myRelatedReferrals.length})
+              </button>
+              <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>
+                Total: {visibleReferrals.length}
+              </div>
             </div>
           </div>
 
           <div style={divider} />
 
-          {myReferrals.length === 0 ? (
+          {visibleReferrals.length === 0 ? (
             <div style={{ color: "#64748b" }}>
-              No referrals yet. When a referral is filed for you, it will appear
-              here.
+              {directionFilter === "received"
+                ? "No received referrals yet."
+                : directionFilter === "sent"
+                  ? "No sent-out referrals yet."
+                  : "No referrals yet."}
             </div>
           ) : (
             <div style={{ display: "grid", gap: 10 }}>
-              {myReferrals.map((r) => (
+              {visibleReferrals.map((r) => {
+                const isReceived = r.student_user_id === myUserId;
+                const secondaryLabel = isReceived ? "Referred by" : "Sent to";
+                const secondaryUser = isReceived
+                  ? getUserName(r.referred_by_user_id)
+                  : getUserName(r.student_user_id);
+
+                return (
                 <Link
                   key={r.referral_id}
                   to={`/app/my-referrals/${r.referral_id}`}
@@ -478,7 +609,7 @@ console.log("myUserId:", myUserId);
                       {formatDate(r.referred_date)} • {r.reason}
                     </div>
                     <div style={{ color: "#64748b", fontSize: 13 }}>
-                      Referred by: {getUserName(r.referred_by_user_id)}
+                      {secondaryLabel}: {secondaryUser}
                       {r.notes ? ` • Notes: ${r.notes}` : ""}
                     </div>
                   </div>
@@ -486,10 +617,39 @@ console.log("myUserId:", myUserId);
                     style={{ display: "flex", alignItems: "center", gap: 10 }}
                   >
                     <ReferralChip status={r.status} />
-                    <span style={{ fontWeight: 950, color: "#334155" }}>→</span>
+                    <button
+                      type="button"
+                      title="Print / Download Referral Form"
+                      style={miniIconBtn}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handlePrintReferral(r);
+                      }}
+                    >
+                      <Printer size={14} />
+                    </button>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        border: "1px solid rgba(15,23,42,0.20)",
+                        background: "rgba(15,23,42,0.04)",
+                        color: "#0f172a",
+                        fontWeight: 900,
+                        fontSize: 12,
+                      }}
+                    >
+                      <Eye size={14} />
+                      View
+                    </span>
                   </div>
                 </Link>
-              ))}
+              );
+            })}
             </div>
           )}
         </div>
@@ -513,7 +673,7 @@ console.log("myUserId:", myUserId);
             🔒 Your information will remain confidential.
           </div>
 
-          {/* schedule */}
+          {/* student info */}
           <div
             style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
           >
@@ -526,12 +686,12 @@ console.log("myUserId:", myUserId);
                   marginBottom: 6,
                 }}
               >
-                Preferred Date
+                Name
               </div>
               <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                value={studentName}
+                onChange={(e) => setStudentName(e.target.value)}
+                placeholder="Enter student name"
                 style={inputStyle}
               />
             </div>
@@ -545,12 +705,12 @@ console.log("myUserId:", myUserId);
                   marginBottom: 6,
                 }}
               >
-                Preferred Time
+                Course
               </div>
               <input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
+                value={course}
+                onChange={(e) => setCourse(e.target.value)}
+                placeholder="Enter course"
                 style={inputStyle}
               />
             </div>
@@ -645,3 +805,4 @@ console.log("myUserId:", myUserId);
     </div>
   );
 }
+

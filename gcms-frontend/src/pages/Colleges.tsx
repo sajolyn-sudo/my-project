@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { postJSON } from "../lib/api";
 
 type College = { id: number; name: string };
+type CollegesResponse = { ok: boolean; colleges?: College[]; message?: string };
 
 const STORAGE_KEY = "gcms_mock_colleges_v1";
 
@@ -29,22 +31,63 @@ export default function Colleges() {
   });
 
   const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => save(colleges), [colleges]);
 
-  const addCollege = () => {
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    postJSON<CollegesResponse>("/colleges_api.php", { action: "list" })
+      .then((res) => {
+        if (!alive) return;
+        setColleges(res.colleges ?? []);
+      })
+      .catch(() => {
+        if (!alive) return;
+      })
+      .finally(() => {
+        if (!alive) return;
+        setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const addCollege = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-
-    const nextId = colleges.length
-      ? Math.max(...colleges.map((c) => c.id)) + 1
-      : 1;
-    setColleges([{ id: nextId, name: trimmed }, ...colleges]);
-    setName("");
+    try {
+      setAdding(true);
+      const res = await postJSON<CollegesResponse>("/colleges_api.php", {
+        action: "create",
+        name: trimmed,
+      });
+      setColleges(res.colleges ?? []);
+      setName("");
+    } catch (e: any) {
+      alert(e?.message || "Failed to add college.");
+    } finally {
+      setAdding(false);
+    }
   };
 
-  const removeCollege = (id: number) => {
-    setColleges(colleges.filter((c) => c.id !== id));
+  const removeCollege = async (id: number) => {
+    try {
+      setDeletingId(id);
+      const res = await postJSON<CollegesResponse>("/colleges_api.php", {
+        action: "delete",
+        id,
+      });
+      setColleges(res.colleges ?? []);
+    } catch (e: any) {
+      alert(e?.message || "Failed to delete college.");
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -60,8 +103,8 @@ export default function Colleges() {
             onChange={(e) => setName(e.target.value)}
             style={input}
           />
-          <button onClick={addCollege} style={primaryBtn}>
-            Add
+          <button onClick={addCollege} style={primaryBtn} disabled={adding}>
+            {adding ? "Adding..." : "Add"}
           </button>
         </div>
       </div>
@@ -78,18 +121,30 @@ export default function Colleges() {
             </tr>
           </thead>
           <tbody>
-            {colleges.map((c) => (
+            {loading ? (
+              <tr>
+                <td style={td} colSpan={3}>
+                  <span style={{ opacity: 0.8 }}>Loading colleges...</span>
+                </td>
+              </tr>
+            ) : (
+              colleges.map((c) => (
               <tr key={c.id}>
                 <td style={td}>{c.id}</td>
                 <td style={td}>{c.name}</td>
                 <td style={td}>
-                  <button onClick={() => removeCollege(c.id)} style={dangerBtn}>
-                    Delete
+                  <button
+                    onClick={() => removeCollege(c.id)}
+                    style={dangerBtn}
+                    disabled={deletingId === c.id}
+                  >
+                    {deletingId === c.id ? "Deleting..." : "Delete"}
                   </button>
                 </td>
               </tr>
-            ))}
-            {colleges.length === 0 && (
+              ))
+            )}
+            {!loading && colleges.length === 0 && (
               <tr>
                 <td style={td} colSpan={3}>
                   <span style={{ opacity: 0.8 }}>No colleges yet.</span>

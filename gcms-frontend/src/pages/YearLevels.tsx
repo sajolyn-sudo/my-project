@@ -13,6 +13,9 @@ type YearLevel = {
 const COLLEGES_KEY = "gcms_mock_colleges_v1";
 const YEARS_KEY = "gcms_mock_academic_years_v1";
 const YL_KEY = "gcms_mock_year_levels_v1";
+const FIXED_YEAR_LEVELS = ["1st Year", "2nd Year", "3rd Year", "4th Year"] as const;
+
+type FixedYearLevelName = (typeof FIXED_YEAR_LEVELS)[number];
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -25,6 +28,72 @@ function load<T>(key: string, fallback: T): T {
 
 function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
+}
+
+function canonicalYearLevelName(raw: string): FixedYearLevelName | null {
+  const value = String(raw || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (/^(1|1st|first)\b/.test(value)) return "1st Year";
+  if (/^(2|2nd|second)\b/.test(value)) return "2nd Year";
+  if (/^(3|3rd|third)\b/.test(value)) return "3rd Year";
+  if (/^(4|4th|4rth|fourth)\b/.test(value)) return "4th Year";
+  return null;
+}
+
+function normalizeYearLevels(items: YearLevel[]): YearLevel[] {
+  const seen = new Set<string>();
+  const sorted = [...items].sort((a, b) => a.id - b.id);
+  const out: YearLevel[] = [];
+
+  for (const item of sorted) {
+    const normalizedName = canonicalYearLevelName(item.name);
+    if (!normalizedName) continue;
+
+    const key = `${normalizedName}|${item.collegeId}|${item.academicYearId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      ...item,
+      name: normalizedName,
+    });
+  }
+
+  return out;
+}
+
+function ensureStandardYearLevels(
+  items: YearLevel[],
+  colleges: College[],
+  academicYearId: number,
+): YearLevel[] {
+  const normalized = normalizeYearLevels(items);
+  if (!academicYearId) return normalized;
+
+  const next = [...normalized];
+  const seen = new Set(
+    next.map((x) => `${x.name}|${x.collegeId}|${x.academicYearId}`),
+  );
+  let nextId = next.length ? Math.max(...next.map((x) => x.id)) + 1 : 1;
+
+  for (const college of colleges) {
+    for (const level of FIXED_YEAR_LEVELS) {
+      const key = `${level}|${college.id}|${academicYearId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push({
+        id: nextId++,
+        name: level,
+        collegeId: college.id,
+        academicYearId,
+      });
+    }
+  }
+
+  return next;
 }
 
 export default function YearLevels() {
@@ -49,40 +118,71 @@ export default function YearLevels() {
   const activeYear = years.find((y) => y.isActive) ?? years[0];
 
   const [items, setItems] = useState<YearLevel[]>(() =>
-    load<YearLevel[]>(YL_KEY, [
-      {
-        id: 1,
-        name: "1st Year",
-        collegeId: 1,
-        academicYearId: activeYear?.id ?? 2,
-      },
-      {
-        id: 2,
-        name: "2nd Year",
-        collegeId: 1,
-        academicYearId: activeYear?.id ?? 2,
-      },
-    ]),
+    ensureStandardYearLevels(
+      load<YearLevel[]>(YL_KEY, [
+        {
+          id: 1,
+          name: "1st Year",
+          collegeId: 1,
+          academicYearId: activeYear?.id ?? 2,
+        },
+        {
+          id: 2,
+          name: "2nd Year",
+          collegeId: 1,
+          academicYearId: activeYear?.id ?? 2,
+        },
+        {
+          id: 3,
+          name: "3rd Year",
+          collegeId: 1,
+          academicYearId: activeYear?.id ?? 2,
+        },
+        {
+          id: 4,
+          name: "4th Year",
+          collegeId: 1,
+          academicYearId: activeYear?.id ?? 2,
+        },
+      ]),
+      colleges,
+      activeYear?.id ?? 0,
+    ),
   );
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState<FixedYearLevelName>(FIXED_YEAR_LEVELS[0]);
   const [collegeId, setCollegeId] = useState<number>(colleges[0]?.id ?? 0);
   const [academicYearId, setAcademicYearId] = useState<number>(
     activeYear?.id ?? 0,
   );
 
+  useEffect(() => {
+    setItems((prev) => {
+      const normalized = normalizeYearLevels(prev);
+      if (normalized.length === prev.length) return prev;
+      return normalized;
+    });
+  }, []);
+
   useEffect(() => save(YL_KEY, items), [items]);
 
   const addItem = () => {
-    const trimmed = name.trim();
-    if (!trimmed || !collegeId || !academicYearId) return;
+    const normalizedName = canonicalYearLevelName(name);
+    if (!normalizedName || !collegeId || !academicYearId) return;
+
+    const exists = items.some(
+      (x) =>
+        x.collegeId === collegeId &&
+        x.academicYearId === academicYearId &&
+        canonicalYearLevelName(x.name) === normalizedName,
+    );
+    if (exists) return;
 
     const nextId = items.length ? Math.max(...items.map((x) => x.id)) + 1 : 1;
     setItems([
-      { id: nextId, name: trimmed, collegeId, academicYearId },
+      { id: nextId, name: normalizedName, collegeId, academicYearId },
       ...items,
     ]);
-    setName("");
   };
 
   const removeItem = (id: number) => {
@@ -107,12 +207,17 @@ export default function YearLevels() {
             gridTemplateColumns: "2fr 2fr 2fr 1fr",
           }}
         >
-          <input
-            placeholder="e.g. 1st Year"
+          <select
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setName(e.target.value as FixedYearLevelName)}
             style={input}
-          />
+          >
+            {FIXED_YEAR_LEVELS.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
 
           <select
             value={collegeId}
@@ -144,7 +249,7 @@ export default function YearLevels() {
         </div>
 
         <div style={{ marginTop: 10, opacity: 0.8, fontSize: 13 }}>
-          Year Levels are linked to a College and Academic Year.
+          Only 1st to 4th Year are allowed for each College + Academic Year.
         </div>
       </div>
 

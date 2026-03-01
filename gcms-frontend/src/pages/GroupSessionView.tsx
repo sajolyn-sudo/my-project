@@ -1,10 +1,26 @@
-import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { Printer } from "lucide-react";
+﻿import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  Building2,
+  CalendarDays,
+  GraduationCap,
+  Layers3,
+  MapPin,
+  Paperclip,
+  Printer,
+  User,
+} from "lucide-react";
+import { Link, useLocation, useParams } from "react-router-dom";
+import { getGroupSession, removeGroupSessionMember } from "../lib/entitiesApi";
 
-type Role = "ADMIN" | "COUNSELOR" | "STUDENT";
+type Role =
+  | "ADMIN"
+  | "COUNSELOR"
+  | "TEACHER"
+  | "NON_TEACHING_PERSONNEL"
+  | "STUDENT";
 
-type User = {
+type UserEntity = {
   id: number;
   fname: string;
   mname?: string;
@@ -29,7 +45,6 @@ type GroupSession = {
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-
   counselorUserId: number;
   date: string;
   location: string;
@@ -60,103 +75,87 @@ function load<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
+
 function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
 export default function GroupSessionView() {
+  const location = useLocation();
   const { id } = useParams();
   const sessionId = Number(id);
 
-  const users = useMemo<User[]>(() => load<User[]>(USERS_KEY, []), []);
-  const colleges = useMemo<College[]>(
-    () => load<College[]>(COLLEGES_KEY, []),
-    [],
-  );
-  const years = useMemo<AcademicYear[]>(
-    () => load<AcademicYear[]>(YEARS_KEY, []),
-    [],
-  );
-  const yearLevels = useMemo<YearLevel[]>(
-    () => load<YearLevel[]>(YL_KEY, []),
-    [],
+  const listHref = useMemo(
+    () => `/app/group-sessions${location.search || ""}`,
+    [location.search],
   );
 
-  const sessions = useMemo<GroupSession[]>(
-    () => load<GroupSession[]>(GS_KEY, []),
-    [],
-  );
+  const users = useMemo<UserEntity[]>(() => load<UserEntity[]>(USERS_KEY, []), []);
+  const colleges = useMemo<College[]>(() => load<College[]>(COLLEGES_KEY, []), []);
+  const years = useMemo<AcademicYear[]>(() => load<AcademicYear[]>(YEARS_KEY, []), []);
+  const yearLevels = useMemo<YearLevel[]>(() => load<YearLevel[]>(YL_KEY, []), []);
+
+  const sessions = useMemo<GroupSession[]>(() => load<GroupSession[]>(GS_KEY, []), []);
   const [members, setMembers] = useState<GroupSessionMember[]>(() =>
     load<GroupSessionMember[]>(GSM_KEY, []),
   );
+  const [found, setFound] = useState<GroupSession | undefined>(() =>
+    sessions.find((s) => s.id === sessionId),
+  );
+  const [loaded, setLoaded] = useState(false);
 
-  const found = sessions.find((s) => s.id === sessionId);
+  useEffect(() => {
+    if (!sessionId) {
+      setLoaded(true);
+      return;
+    }
+
+    setLoaded(false);
+    let alive = true;
+
+    getGroupSession(sessionId)
+      .then((res) => {
+        if (!alive) return;
+
+        const item = res.item;
+        const nextMembers = res.members ?? [];
+
+        setFound(item);
+        setMembers(nextMembers);
+        save(GSM_KEY, nextMembers);
+
+        const current = load<GroupSession[]>(GS_KEY, []);
+        const idx = current.findIndex((s) => s.id === item.id);
+        const nextSessions =
+          idx === -1
+            ? [item, ...current]
+            : current.map((s) => (s.id === item.id ? item : s));
+        save(GS_KEY, nextSessions);
+      })
+      .catch(() => {
+        // Keep cached fallback if API is unreachable.
+      })
+      .finally(() => {
+        if (alive) setLoaded(true);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [sessionId]);
 
   const labelUser = (uid: number) => {
     const u = users.find((x) => x.id === uid);
     if (!u) return "Unknown";
-    const full = `${u.fname} ${u.mname ? u.mname + " " : ""}${u.lname}`;
+    const full = `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`;
     return `${full} (${u.email})`;
   };
 
   const labelCollege = (cid: number) =>
-    colleges.find((c) => c.id === cid)?.name ?? "—";
-  const labelAY = (ayid: number) =>
-    years.find((y) => y.id === ayid)?.name ?? "—";
+    colleges.find((c) => c.id === cid)?.name ?? "-";
+  const labelAY = (ayid: number) => years.find((y) => y.id === ayid)?.name ?? "-";
   const labelYL = (ylid: number) =>
-    yearLevels.find((y) => y.id === ylid)?.name ?? "—";
-
-  // ===== Styles =====
-  const card: React.CSSProperties = {
-    background: "var(--card)",
-    padding: 16,
-    borderRadius: 16,
-    boxShadow: "var(--shadow)",
-    border: "1px solid var(--border)",
-  };
-
-  const pill: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.65)",
-    fontWeight: 800,
-    fontSize: 13,
-  };
-
-  const dangerButton: React.CSSProperties = {
-    height: 32,
-    padding: "0 12px",
-    borderRadius: 10,
-    border: "none",
-    background: "#D9534F",
-    color: "white",
-    cursor: "pointer",
-    fontWeight: 800,
-  };
-
-  const label: React.CSSProperties = {
-    fontSize: 13,
-    fontWeight: 800,
-    opacity: 0.85,
-    marginBottom: 6,
-  };
-
-  const printButton: React.CSSProperties = {
-    height: 40,
-    padding: "0 14px",
-    borderRadius: 12,
-    border: "1px solid var(--border)",
-    background: "white",
-    cursor: "pointer",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 10,
-    fontWeight: 900,
-  };
+    yearLevels.find((y) => y.id === ylid)?.name ?? "-";
 
   // ===== Call Slip Print Helpers =====
   const escapeHtml = (s: string) =>
@@ -195,20 +194,19 @@ export default function GroupSessionView() {
     const sessionMembers = members
       .filter((m) => m.groupSessionId === session.id)
       .map((m) => users.find((u) => u.id === m.studentUserId))
-      .filter(Boolean) as User[];
+      .filter(Boolean) as UserEntity[];
 
     const counselor = users.find((u) => u.id === session.counselorUserId);
     const counselorName = counselor
-      ? `${counselor.fname} ${counselor.mname ? counselor.mname + " " : ""}${counselor.lname}`
+      ? `${counselor.fname} ${counselor.mname ? `${counselor.mname} ` : ""}${counselor.lname}`
       : "Guidance Counselor";
 
     const collegeName = labelCollege(session.collegeId);
     const ylName = labelYL(session.yearLevelId);
     const courseYear = `${collegeName} • ${ylName}`;
 
-    // chunk members (like your photo list)
     const chunkSize = 10;
-    const chunks: User[][] = [];
+    const chunks: UserEntity[][] = [];
     for (let i = 0; i < sessionMembers.length; i += chunkSize) {
       chunks.push(sessionMembers.slice(i, i + chunkSize));
     }
@@ -222,7 +220,7 @@ export default function GroupSessionView() {
       .map((chunk) => {
         const rows = chunk
           .map((s) => {
-            const full = `${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`;
+            const full = `${s.fname} ${s.mname ? `${s.mname} ` : ""}${s.lname}`;
             return `
               <tr>
                 <td>${escapeHtml(full)}</td>
@@ -241,7 +239,7 @@ export default function GroupSessionView() {
                   <div class="office">Guidance and Counseling Services Center</div>
                 </div>
 
-                <div class="title">CALL SLIP – GUIDANCE</div>
+                <div class="title">CALL SLIP - GUIDANCE</div>
 
                 <div class="meta">
                   <div>To: <span class="line"></span></div>
@@ -288,7 +286,7 @@ export default function GroupSessionView() {
                   <div class="office">Guidance and Counseling Services Center</div>
                 </div>
 
-                <div class="title">CALL SLIP – GUIDANCE</div>
+                <div class="title">CALL SLIP - GUIDANCE</div>
                 <div class="subtitle">APPEARANCE</div>
 
                 <div class="meta">
@@ -307,9 +305,7 @@ export default function GroupSessionView() {
                   per referral of <span class="line" style="min-width:180px;"></span>.
                 </div>
 
-                <div class="para" style="margin-top:14px;">
-                  Remarks:
-                </div>
+                <div class="para" style="margin-top:14px;">Remarks:</div>
                 <div class="ln"></div>
                 <div class="ln"></div>
                 <div class="ln"></div>
@@ -379,49 +375,130 @@ export default function GroupSessionView() {
     w.document.close();
   };
 
+  const sessionMembers = found
+    ? members.filter((m) => m.groupSessionId === found.id)
+    : [];
+
+  const removeMember = async (memberId: number) => {
+    if (!found) return;
+    try {
+      const res = await removeGroupSessionMember({
+        memberId,
+        sessionId: found.id,
+      });
+      const next = res.members ?? [];
+      setMembers(next);
+      save(GSM_KEY, next);
+    } catch (e: any) {
+      alert(e?.message || "Failed to remove member.");
+    }
+  };
+
+  const card: React.CSSProperties = {
+    background: "var(--card)",
+    padding: 16,
+    borderRadius: 16,
+    boxShadow: "var(--shadow)",
+    border: "1px solid var(--border)",
+  };
+
+  const label: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 0.2,
+    opacity: 0.7,
+    textTransform: "uppercase",
+    marginBottom: 6,
+  };
+
+  const chip: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "7px 12px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.75)",
+    fontWeight: 800,
+    fontSize: 13,
+  };
+
+  const printButton: React.CSSProperties = {
+    height: 40,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "white",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+    fontWeight: 900,
+  };
+
+  const iconAction: React.CSSProperties = {
+    height: 40,
+    width: 40,
+    borderRadius: 12,
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "var(--primary)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    textDecoration: "none",
+  };
+
+  const dangerButton: React.CSSProperties = {
+    height: 32,
+    padding: "0 12px",
+    borderRadius: 10,
+    border: "none",
+    background: "#D9534F",
+    color: "white",
+    cursor: "pointer",
+    fontWeight: 800,
+  };
+
   if (!found) {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <h2 style={{ fontWeight: 900 }}>Group Session Details</h2>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: "space-between",
+          }}
+        >
+          <h2 style={{ fontWeight: 900, margin: 0 }}>Group Session Details</h2>
+          <Link
+            to={listHref}
+            title="Back to Group Sessions"
+            aria-label="Back to Group Sessions"
+            style={iconAction}
+          >
+            <ArrowLeft size={18} />
+          </Link>
+        </div>
         <div style={card}>
-          <div style={{ opacity: 0.8 }}>Session not found.</div>
-          <div style={{ marginTop: 12 }}>
-            <Link
-              to="/app/group-sessions"
-              style={{
-                color: "var(--primary)",
-                fontWeight: 900,
-                textDecoration: "none",
-              }}
-            >
-              ← Back to Group Sessions
-            </Link>
-          </div>
+          <div style={{ opacity: 0.8 }}>{loaded ? "Session not found." : "Loading session..."}</div>
         </div>
       </div>
     );
   }
 
-  const sessionMembers = members.filter((m) => m.groupSessionId === found.id);
-
-  const removeMember = (memberId: number) => {
-    const next = members.filter((m) => m.id !== memberId);
-    setMembers(next);
-    save(GSM_KEY, next);
-  };
-
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* Header */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
+          gap: 10,
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ fontWeight: 900, marginRight: "auto" }}>
+        <h2 style={{ fontWeight: 900, margin: 0, marginRight: "auto" }}>
           Group Session Details
         </h2>
 
@@ -431,67 +508,94 @@ export default function GroupSessionView() {
         </button>
 
         <Link
-          to="/app/group-sessions"
-          style={{
-            textDecoration: "none",
-            color: "var(--primary)",
-            fontWeight: 900,
-          }}
+          to={listHref}
+          title="Back to Group Sessions"
+          aria-label="Back to Group Sessions"
+          style={iconAction}
         >
-          ← Back
+          <ArrowLeft size={18} />
         </Link>
       </div>
 
-      {/* Details */}
       <div style={card}>
-        <div style={{ fontSize: 14, opacity: 0.8 }}>Topic</div>
-        <div style={{ fontSize: 20, fontWeight: 900 }}>{found.topic}</div>
-        <div style={{ opacity: 0.85 }}>{found.location}</div>
+        <div style={label}>Topic</div>
+        <div style={{ fontSize: 30, fontWeight: 900, lineHeight: 1.1 }}>{found.topic}</div>
 
         <div
-          style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}
+          style={{
+            marginTop: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            color: "rgba(15,23,42,0.8)",
+            fontWeight: 700,
+          }}
         >
-          <span style={pill}>📅 {found.date}</span>
-          <span style={pill}>🎓 {labelAY(found.academicYearId)}</span>
-          <span style={pill}>🏫 {labelCollege(found.collegeId)}</span>
-          <span style={pill}>📌 {labelYL(found.yearLevelId)}</span>
+          <MapPin size={16} />
+          {found.location}
         </div>
 
-        <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-          <div>
-            <span style={{ opacity: 0.8 }}>Counselor: </span>
+        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <span style={chip}>
+            <CalendarDays size={14} />
+            {found.date}
+          </span>
+          <span style={chip}>
+            <GraduationCap size={14} />
+            {labelAY(found.academicYearId)}
+          </span>
+          <span style={chip}>
+            <Building2 size={14} />
+            {labelCollege(found.collegeId)}
+          </span>
+          <span style={chip}>
+            <Layers3 size={14} />
+            {labelYL(found.yearLevelId)}
+          </span>
+        </div>
+
+        <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
+          <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+            <User size={15} />
+            <span style={{ opacity: 0.8 }}>Counselor:</span>
             <b>{labelUser(found.counselorUserId)}</b>
           </div>
 
-          {found.notes && (
+          {found.notes ? (
             <div>
-              <span style={{ opacity: 0.8 }}>Notes: </span>
-              <b>{found.notes}</b>
+              <span style={{ opacity: 0.8 }}>Notes:</span> <b>{found.notes}</b>
             </div>
-          )}
+          ) : null}
 
-          {found.attachment && (
-            <div>
-              <span style={{ opacity: 0.8 }}>Attachment: </span>
+          {found.attachment ? (
+            <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+              <Paperclip size={14} />
+              <span style={{ opacity: 0.8 }}>Attachment:</span>
               <b>{found.attachment}</b>
             </div>
-          )}
+          ) : null}
 
           <div style={{ opacity: 0.75, fontSize: 13 }}>
-            Session ID: <b>#{found.id}</b> • Created: <b>{found.createdAt}</b>
+            Session ID: <b>#{found.id}</b> | Created: <b>{found.createdAt}</b>
           </div>
         </div>
       </div>
 
-      {/* Members */}
       <div style={card}>
-        <h3 style={{ marginBottom: 10 }}>Members</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 10 }}>Members</h3>
 
         {sessionMembers.length === 0 ? (
           <div style={{ opacity: 0.8 }}>No members for this session.</div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {sessionMembers.map((m) => (
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.65)",
+              overflow: "hidden",
+            }}
+          >
+            {sessionMembers.map((m, idx) => (
               <div
                 key={m.id}
                 style={{
@@ -499,19 +603,13 @@ export default function GroupSessionView() {
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: 12,
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                  background: "rgba(255,255,255,0.6)",
+                  padding: "12px 14px",
+                  borderTop: idx === 0 ? "none" : "1px solid var(--border)",
                 }}
               >
                 <div style={{ display: "grid", gap: 2 }}>
-                  <div style={{ fontWeight: 900 }}>
-                    {labelUser(m.studentUserId)}
-                  </div>
-                  <div style={{ fontSize: 13, opacity: 0.75 }}>
-                    Member ID: #{m.id}
-                  </div>
+                  <div style={{ fontWeight: 900 }}>{labelUser(m.studentUserId)}</div>
+                  <div style={{ fontSize: 13, opacity: 0.75 }}>Member ID: #{m.id}</div>
                 </div>
 
                 <button onClick={() => removeMember(m.id)} style={dangerButton}>
@@ -522,10 +620,8 @@ export default function GroupSessionView() {
           </div>
         )}
 
-        <div style={{ marginTop: 14 }}>
-          <div style={label}>
-            Total Members: <b>{sessionMembers.length}</b>
-          </div>
+        <div style={{ marginTop: 12, opacity: 0.82, fontWeight: 800 }}>
+          Total Members: {sessionMembers.length}
         </div>
       </div>
     </div>

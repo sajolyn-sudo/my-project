@@ -1,7 +1,17 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "../store/authStore";
-import { User, Shield, Camera, Check, X } from "lucide-react";
+import {
+  User,
+  Shield,
+  Camera,
+  Check,
+  X,
+  Mail,
+  GraduationCap,
+} from "lucide-react";
 import Cropper, { type Area } from "react-easy-crop";
+import { postJSON } from "../lib/api";
+import type { AuthUser } from "../types/auth";
 
 type AnyRecord = Record<string, any>;
 
@@ -9,6 +19,17 @@ function initialsOf(fname?: string, lname?: string) {
   const a = (fname?.trim()?.[0] ?? "U").toUpperCase();
   const b = (lname?.trim()?.[0] ?? "").toUpperCase();
   return a + b;
+}
+
+function roleDisplay(value: string): string {
+  const role = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+  if (role === "NON_TEACHING" || role === "NON_TEACHING_STAFF") {
+    return "NON TEACHING PERSONNEL";
+  }
+  return role.replaceAll("_", " ");
 }
 
 /** Convert imageSrc (dataURL) to HTMLImageElement */
@@ -317,6 +338,7 @@ function CompactInput({
 
 export default function Account() {
   const user = useAuthStore((s: AnyRecord) => s.user);
+  const setUser = useAuthStore((s: AnyRecord) => s.setUser);
 
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<"profile" | "security">("profile");
@@ -335,10 +357,14 @@ export default function Account() {
   });
 
   // avatar + border style
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<string | null>(user?.profilePhoto ?? null);
   const [borderStyle] = useState<"none" | "blue" | "yellow" | "gradient">(
     "gradient",
   );
+
+  useEffect(() => {
+    setPhoto(user?.profilePhoto ?? null);
+  }, [user?.id, user?.profilePhoto]);
 
   const border = useMemo(() => {
     if (borderStyle === "none") return "none";
@@ -385,26 +411,51 @@ export default function Account() {
     setImageSrc(null);
   };
 
+  const forceCloseCrop = () => {
+    setCropOpen(false);
+    setImageSrc(null);
+  };
+
   const saveCropped = async () => {
-    if (!imageSrc) return;
+    if (!imageSrc || !user) return;
+    const previousPhoto = photo;
     try {
       setSavingCrop(true);
+      let nextPhoto = imageSrc;
       if (!croppedAreaPixels) {
-        setPhoto(imageSrc);
+        nextPhoto = imageSrc;
       } else {
         const cropped = await getCroppedDataUrl(imageSrc, croppedAreaPixels);
-        setPhoto(cropped);
+        nextPhoto = cropped;
       }
-      closeCrop();
+      setPhoto(nextPhoto);
+
+      const res = await postJSON<{ ok: boolean; profilePhoto?: string }>(
+        "/profile_photo_update.php",
+        {
+          userId: user.id,
+          profilePhoto: nextPhoto,
+        },
+      );
+      const savedPhoto = String(res.profilePhoto ?? nextPhoto);
+
+      setPhoto(savedPhoto || null);
+      setUser({
+        ...(user as AuthUser),
+        profilePhoto: savedPhoto || undefined,
+      });
+      forceCloseCrop();
     } catch {
-      setPhoto(imageSrc);
-      closeCrop();
+      setPhoto(previousPhoto);
+      alert("Failed to save profile photo.");
     } finally {
       setSavingCrop(false);
     }
   };
 
   if (!user) return null;
+  const role = String(user.role || "").toUpperCase();
+  const hideProfileDetails = role === "ADMIN" || role === "COUNSELOR";
 
   // map possible field names from your user object
   const college =
@@ -412,20 +463,6 @@ export default function Account() {
     user.college_name ??
     user.collegeName ??
     user.colleges_name ??
-    "—";
-  const course =
-    user.course ??
-    user.course_name ??
-    user.program ??
-    user.program_name ??
-    user.courseName ??
-    "—";
-  const yearLevel =
-    user.yearLevel ??
-    user.year_level ??
-    user.year_level_name ??
-    user.yearLevelName ??
-    user.yearlevel ??
     "—";
 
   const pageBg =
@@ -453,7 +490,7 @@ export default function Account() {
           }}
         >
           {/* LEFT SIDE - TEXT */}
-          <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gap: 14, minWidth: 300 }}>
             <div>
               <div style={{ fontSize: 26, fontWeight: 1000 }}>Account</div>
               <div
@@ -464,27 +501,90 @@ export default function Account() {
                   marginTop: 4,
                 }}
               >
-                Update your student profile, photo, and password.
+                Update your profile, photo, and password.
               </div>
             </div>
 
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontWeight: 900, fontSize: 16 }}>
-                👤 {profile.fname} {profile.lname}
-              </div>
-
-              <div style={{ color: "#64748b", fontWeight: 800 }}>
-                📧 {profile.email}
+            <div
+              style={{
+                display: "grid",
+                gap: 8,
+                padding: 12,
+                borderRadius: 14,
+                border: "1px solid rgba(15,23,42,0.10)",
+                background: "rgba(255,255,255,0.72)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  color: "#0f172a",
+                  fontWeight: 900,
+                  fontSize: 17,
+                }}
+              >
+                <span
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.12)",
+                    background: "rgba(15,23,42,0.04)",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  <User size={15} />
+                </span>
+                {profile.fname} {profile.lname}
               </div>
 
               <div
                 style={{
-                  fontWeight: 900,
-                  color: "rgba(37,99,235,1)",
-                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  color: "#475569",
+                  fontWeight: 800,
+                  fontSize: 14,
                 }}
               >
-                🎓 {user.role}
+                <span
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 10,
+                    border: "1px solid rgba(15,23,42,0.12)",
+                    background: "rgba(15,23,42,0.04)",
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  <Mail size={15} />
+                </span>
+                {profile.email}
+              </div>
+
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "fit-content",
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(15,23,42,0.14)",
+                  background: "rgba(15,23,42,0.05)",
+                  color: "#0f172a",
+                  fontWeight: 900,
+                  fontSize: 12,
+                  letterSpacing: 0.3,
+                }}
+              >
+                <GraduationCap size={14} />
+                {roleDisplay(String(user.role || "STUDENT"))}
               </div>
             </div>
           </div>
@@ -590,24 +690,27 @@ export default function Account() {
 
         {/* TOGGLES */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <ToggleButton
-            icon={<User size={18} />}
-            title="Profile Details"
-            description="View personal & academic info"
-            active={activeTab === "profile"}
-            onClick={() => setActiveTab("profile")}
-          />
+          {!hideProfileDetails ? (
+            <ToggleButton
+              icon={<User size={18} />}
+              title="Profile Details"
+              description="View personal & academic info"
+              active={activeTab === "profile"}
+              onClick={() => setActiveTab("profile")}
+            />
+          ) : null}
           <ToggleButton
             icon={<Shield size={18} />}
             title="Security"
             description="Change your password"
-            active={activeTab === "security"}
+            active={hideProfileDetails || activeTab === "security"}
             onClick={() => setActiveTab("security")}
           />
         </div>
 
         {/* PROFILE (compact + collapsible inside) */}
-        <AnimatedSection open={activeTab === "profile"}>
+        {!hideProfileDetails ? (
+          <AnimatedSection open={activeTab === "profile"}>
           <CollapsibleCard title="Personal & Academic Information" defaultOpen>
             <div
               style={{
@@ -616,13 +719,11 @@ export default function Account() {
                 gap: 14,
               }}
             >
-              <CompactField label="First Name" value={profile.fname || "—"} />
-              <CompactField label="Last Name" value={profile.lname || "—"} />
-              <CompactField label="Email" value={profile.email || "—"} />
-              <CompactField label="College" value={String(college)} />
-              <CompactField label="Course" value={String(course)} />
-              <CompactField label="Year Level" value={String(yearLevel)} />
-            </div>
+                <CompactField label="First Name" value={profile.fname || "—"} />
+                <CompactField label="Last Name" value={profile.lname || "—"} />
+                <CompactField label="Email" value={profile.email || "—"} />
+                <CompactField label="College" value={String(college)} />
+              </div>
 
             <div
               style={{
@@ -635,10 +736,11 @@ export default function Account() {
               Profile details are managed by the administrator.
             </div>
           </CollapsibleCard>
-        </AnimatedSection>
+          </AnimatedSection>
+        ) : null}
 
         {/* SECURITY (compact + collapsible inside) */}
-        <AnimatedSection open={activeTab === "security"}>
+        <AnimatedSection open={hideProfileDetails || activeTab === "security"}>
           <CollapsibleCard title="Security Settings" defaultOpen>
             <div
               style={{

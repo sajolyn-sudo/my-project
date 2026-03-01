@@ -1,7 +1,15 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
+import {
+  fetchEntitiesBootstrap,
+  listCounselingCases,
+  listReferrals,
+  type AcademicYear as EntityAcademicYear,
+  type CounselingCase as EntityCounselingCase,
+  type Referral as EntityReferral,
+  type User as EntityUser,
+} from "../lib/entitiesApi";
 
 import {
   ResponsiveContainer,
@@ -14,22 +22,39 @@ import {
   Legend,
   BarChart,
   Bar,
+  PieChart,
+  Pie,
+  Cell,
+  Sector,
 } from "recharts";
 
-type AcademicYear = { id: number; name: string };
+type AcademicYear = EntityAcademicYear;
+type CounselingCase = EntityCounselingCase;
+type Referral = EntityReferral;
 
-type RecentUser = {
-  id: number;
-  fname: string;
-  mname?: string;
-  lname: string;
-  email: string;
-  role: "student" | "counselor" | "admin";
-  createdAt: string;
-  academicYearId: number;
+type DashboardUser = EntityUser & {
+  createdAt?: string;
+  academicYearId?: number;
 };
+type MonthlyReferral = { month: string; count: number };
 
-type MonthlyReferral = { month: string; count: number; academicYearId: number };
+const USERS_KEY = "gcms_mock_users_v1";
+const YEARS_KEY = "gcms_mock_academic_years_v1";
+const REF_KEY = "gcms_mock_referrals_v1";
+const CASES_KEY = "gcms_mock_counseling_cases_v2";
+
+function load<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function save<T>(key: string, value: T) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
 
 function animateTo(
   from: number,
@@ -59,113 +84,183 @@ function animateTo(
   requestAnimationFrame(tick);
 }
 
-const roleLabel: Record<RecentUser["role"], string> = {
-  student: "Student",
-  counselor: "Counselor",
-  admin: "Admin",
-};
+const monthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const fallbackAcademicYears: AcademicYear[] = [
+  { id: 1, name: "2024-2025", isActive: false },
+  { id: 2, name: "2025-2026", isActive: true },
+];
 
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   if (!user) return null;
 
   const isAdmin = user.role === "ADMIN";
+  const [academicYears, setAcademicYears] = useState<AcademicYear[]>(() =>
+    load<AcademicYear[]>(YEARS_KEY, fallbackAcademicYears),
+  );
+  const [allUsers, setAllUsers] = useState<DashboardUser[]>(() =>
+    load<DashboardUser[]>(USERS_KEY, []),
+  );
+  const [allCases, setAllCases] = useState<CounselingCase[]>(() =>
+    load<CounselingCase[]>(CASES_KEY, []),
+  );
+  const [allReferrals, setAllReferrals] = useState<Referral[]>(() =>
+    load<Referral[]>(REF_KEY, []),
+  );
 
-  // ---------- Mock data ----------
-  const academicYears: AcademicYear[] = [
-    { id: 1, name: "2024–2025" },
-    { id: 2, name: "2025–2026" },
-  ];
+  const [selectedAyId, setSelectedAyId] = useState<number>(() => {
+    const years = load<AcademicYear[]>(YEARS_KEY, fallbackAcademicYears);
+    return years.find((y) => y.isActive)?.id ?? years[0]?.id ?? 0;
+  });
 
-  const [selectedAyId, setSelectedAyId] = useState<number>(academicYears[1].id);
+  useEffect(() => {
+    let alive = true;
+    const cachedUsers = load<DashboardUser[]>(USERS_KEY, []);
 
-  const allRecentUsers: RecentUser[] = [
-    {
-      id: 101,
-      fname: "Ana",
-      lname: "Dela Cruz",
-      email: "ana@gcms.demo",
-      role: "student",
-      createdAt: "2026-02-12",
-      academicYearId: 2,
-    },
-    {
-      id: 102,
-      fname: "John",
-      lname: "Reyes",
-      email: "john@gcms.demo",
-      role: "counselor",
-      createdAt: "2026-02-10",
-      academicYearId: 2,
-    },
-    {
-      id: 103,
-      fname: "Maria",
-      mname: "L.",
-      lname: "Santos",
-      email: "maria@gcms.demo",
-      role: "counselor",
-      createdAt: "2026-02-08",
-      academicYearId: 2,
-    },
-    {
-      id: 104,
-      fname: "Pink",
-      lname: "Acas",
-      email: "pink.acas@gmail.com",
-      role: "student",
-      createdAt: "2026-01-28",
-      academicYearId: 2,
-    },
-    {
-      id: 105,
-      fname: "System",
-      lname: "Admin",
-      email: "admin@gcms.demo",
-      role: "admin",
-      createdAt: "2025-08-01",
-      academicYearId: 1,
-    },
-  ];
+    Promise.allSettled([
+      fetchEntitiesBootstrap(),
+      listCounselingCases(),
+      listReferrals(),
+    ]).then((results) => {
+      if (!alive) return;
+      const [bootstrapResult, casesResult, referralsResult] = results;
 
-  const referralMonthly: MonthlyReferral[] = [
-    { month: "Aug", count: 4, academicYearId: 1 },
-    { month: "Sep", count: 7, academicYearId: 1 },
-    { month: "Oct", count: 6, academicYearId: 1 },
-    { month: "Nov", count: 9, academicYearId: 1 },
-    { month: "Dec", count: 8, academicYearId: 1 },
+      if (bootstrapResult.status === "fulfilled") {
+        const payload = bootstrapResult.value;
 
-    { month: "Jan", count: 10, academicYearId: 2 },
-    { month: "Feb", count: 14, academicYearId: 2 },
-    { month: "Mar", count: 9, academicYearId: 2 },
-    { month: "Apr", count: 12, academicYearId: 2 },
-    { month: "May", count: 7, academicYearId: 2 },
-  ];
+        const nextYears = payload.academicYears ?? [];
+        if (nextYears.length) {
+          setAcademicYears(nextYears);
+          save(YEARS_KEY, nextYears);
+        }
 
+        const byId = new Map<number, DashboardUser>();
+        for (const cached of cachedUsers) byId.set(cached.id, cached);
+        for (const live of payload.users ?? []) {
+          const cached = byId.get(live.id);
+          byId.set(live.id, {
+            ...cached,
+            ...live,
+            createdAt: (live as DashboardUser).createdAt ?? cached?.createdAt ?? "",
+            academicYearId:
+              Number((live as DashboardUser).academicYearId ?? cached?.academicYearId ?? 0) ||
+              undefined,
+          });
+        }
+        const mergedUsers = Array.from(byId.values());
+        setAllUsers(mergedUsers);
+        save(USERS_KEY, mergedUsers);
+      }
+
+      if (casesResult.status === "fulfilled") {
+        const nextCases = casesResult.value.cases ?? [];
+        setAllCases(nextCases);
+        save(CASES_KEY, nextCases);
+      }
+
+      if (referralsResult.status === "fulfilled") {
+        const nextReferrals = referralsResult.value.referrals ?? [];
+        setAllReferrals(nextReferrals);
+        save(REF_KEY, nextReferrals);
+      }
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!academicYears.length) return;
+    const exists = academicYears.some((ay) => ay.id === selectedAyId);
+    if (!exists) {
+      setSelectedAyId(academicYears.find((ay) => ay.isActive)?.id ?? academicYears[0].id);
+    }
+  }, [academicYears, selectedAyId]);
   // ---------- Filtered data ----------
-  const recentUsers = useMemo(() => {
-    return allRecentUsers
-      .filter((u) => u.academicYearId === selectedAyId)
-      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-      .slice(0, 6);
-  }, [selectedAyId]);
+  const userCategoryData = useMemo(() => {
+    let students = 0;
+    let teachers = 0;
+    let nonTeaching = 0;
+
+    for (const u of allUsers) {
+      const ay = Number((u as DashboardUser).academicYearId ?? 0);
+      if (ay && ay !== selectedAyId) continue;
+
+      const role = String(u.role || "").toUpperCase();
+      if (role === "STUDENT") students += 1;
+      else if (role === "TEACHER") teachers += 1;
+      else if (role === "NON_TEACHING_PERSONNEL") nonTeaching += 1;
+    }
+
+    return [
+      {
+        key: "students",
+        name: "Students",
+        value: students,
+        color: "rgba(37,99,235,1)",
+      },
+      {
+        key: "teachers",
+        name: "Teachers",
+        value: teachers,
+        color: "rgba(16,185,129,1)",
+      },
+      {
+        key: "non_teaching",
+        name: "Non Teaching Personnel",
+        value: nonTeaching,
+        color: "rgba(251,191,36,1)",
+      },
+    ];
+  }, [allUsers, selectedAyId]);
+  const totalCategoryUsers = useMemo(
+    () => userCategoryData.reduce((sum, item) => sum + item.value, 0),
+    [userCategoryData],
+  );
 
   const chartData = useMemo(() => {
-    return referralMonthly.filter((r) => r.academicYearId === selectedAyId);
-  }, [selectedAyId]);
+    const counts = new Array<number>(12).fill(0);
+    for (const r of allReferrals) {
+      if (r.academicYearId !== selectedAyId) continue;
+      const dt = new Date(r.referredDate);
+      if (Number.isNaN(dt.getTime())) continue;
+      counts[dt.getMonth()] += 1;
+    }
+    return monthLabels.map<MonthlyReferral>((month, idx) => ({
+      month,
+      count: counts[idx],
+    }));
+  }, [allReferrals, selectedAyId]);
 
   const targetStats = useMemo(() => {
-    const usersCount =
-      allRecentUsers.filter((u) => u.academicYearId === selectedAyId).length +
-      18;
-    const activeCases = selectedAyId === 2 ? 23 : 15;
-    const referralsThisMonth =
-      selectedAyId === 2
-        ? (chartData.find((c) => c.month === "Feb")?.count ?? 14)
-        : 8;
+    const now = new Date();
+    const usersCount = allUsers.length;
+    const activeCases = allCases.filter(
+      (c) => c.academicYearId === selectedAyId && c.status !== "Completed",
+    ).length;
+    const referralsThisMonth = allReferrals.filter((r) => {
+      if (r.academicYearId !== selectedAyId) return false;
+      const dt = new Date(r.referredDate);
+      if (Number.isNaN(dt.getTime())) return false;
+      return dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
+    }).length;
 
     return { totalUsers: usersCount, activeCases, referralsThisMonth };
-  }, [selectedAyId, chartData]);
+  }, [allUsers, allCases, allReferrals, selectedAyId]);
 
   // ---------- Animated counters ----------
   const [totalUsers, setTotalUsers] = useState(0);
@@ -174,12 +269,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     animateTo(totalUsers, targetStats.totalUsers, 650, setTotalUsers);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetStats.totalUsers]);
 
   useEffect(() => {
     animateTo(activeCases, targetStats.activeCases, 650, setActiveCases);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetStats.activeCases]);
 
   useEffect(() => {
@@ -189,7 +282,6 @@ export default function Dashboard() {
       650,
       setReferralsThisMonth,
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetStats.referralsThisMonth]);
 
   // ---------- Theme (match sidebar vibe: deep navy + blue/yellow accents) ----------
@@ -371,77 +463,134 @@ export default function Dashboard() {
     boxShadow: active ? "0 12px 20px rgba(37,99,235,0.18)" : "none",
   });
 
-  const tableWrap: CSSProperties = {
+  const pieWrap: CSSProperties = {
     marginTop: 10,
-    overflowX: "auto",
     borderRadius: 18,
     border: "1px solid rgba(15,23,42,0.10)",
     background: "rgba(255,255,255,0.78)",
-  };
-
-  const table: CSSProperties = {
-    width: "100%",
-    borderCollapse: "separate",
-    borderSpacing: 0,
-  };
-
-  const th: CSSProperties = {
-    textAlign: "left",
-    fontSize: 12.5,
-    letterSpacing: 0.2,
-    color: mutedInk,
-    padding: "12px 12px",
-    background: "rgba(248,250,252,0.88)",
-    position: "sticky",
-    top: 0,
-    zIndex: 1,
-  };
-
-  const td: CSSProperties = {
-    padding: "12px 12px",
-    borderTop: "1px solid rgba(15,23,42,0.08)",
-    color: "rgba(15,23,42,0.86)",
-    fontSize: 13.5,
-  };
-
-  const badge = (role: RecentUser["role"]): CSSProperties => {
-    const common: CSSProperties = {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "6px 10px",
-      borderRadius: 999,
-      border: "1px solid rgba(15,23,42,0.12)",
-      fontSize: 12,
-      fontWeight: 950,
-      background: "rgba(248,250,252,0.92)",
-      color: "rgba(15,23,42,0.82)",
-      whiteSpace: "nowrap",
-    };
-
-    if (role === "admin")
-      return {
-        ...common,
-        border: "1px solid rgba(37,99,235,0.20)",
-        background: "rgba(37,99,235,0.10)",
-        color: "rgba(29,78,216,1)",
-      };
-    if (role === "counselor")
-      return {
-        ...common,
-        border: "1px solid rgba(251,191,36,0.26)",
-        background: "rgba(251,191,36,0.16)",
-        color: "rgba(146,64,14,1)",
-      };
-    return {
-      ...common,
-      border: "1px solid rgba(37,99,235,0.18)",
-      background: "rgba(37,99,235,0.08)",
-      color: "rgba(29,78,216,1)",
-    };
+    padding: 12,
   };
 
   // Chart mode
   const [chartMode, setChartMode] = useState<"line" | "bar">("line");
+  const [activeUserSlice, setActiveUserSlice] = useState<number>(0);
+  useEffect(() => {
+    if (!userCategoryData.length) {
+      if (activeUserSlice !== 0) setActiveUserSlice(0);
+      return;
+    }
+    if (activeUserSlice >= userCategoryData.length) setActiveUserSlice(0);
+  }, [activeUserSlice, userCategoryData]);
+  useEffect(() => {
+    if (!userCategoryData.length) return;
+    let maxIdx = 0;
+    for (let i = 1; i < userCategoryData.length; i += 1) {
+      if (userCategoryData[i].value > userCategoryData[maxIdx].value) maxIdx = i;
+    }
+    setActiveUserSlice(maxIdx);
+  }, [userCategoryData]);
+
+  const renderUserSlice = (props: any) => {
+    const {
+      cx,
+      cy,
+      innerRadius,
+      outerRadius,
+      startAngle,
+      endAngle,
+      fill,
+      payload,
+    } = props;
+
+    const isActive = payload?.key === userCategoryData[activeUserSlice]?.key;
+    const ringOuter = outerRadius + (isActive ? 6 : 2);
+
+    return (
+      <g>
+        <Sector
+          cx={cx}
+          cy={cy}
+          innerRadius={innerRadius}
+          outerRadius={outerRadius}
+          startAngle={startAngle}
+          endAngle={endAngle}
+          fill={fill}
+          cornerRadius={6}
+        />
+        <Sector
+          cx={cx}
+          cy={cy}
+          innerRadius={ringOuter - 1}
+          outerRadius={ringOuter}
+          startAngle={startAngle}
+          endAngle={endAngle}
+          fill={fill}
+          opacity={0.95}
+        />
+      </g>
+    );
+  };
+
+  const renderUserLabel = (props: any) => {
+    const {
+      cx,
+      cy,
+      outerRadius,
+      midAngle,
+      fill,
+      percent,
+      value,
+      name,
+    } = props;
+    if (!value) return null;
+
+    const RAD = Math.PI / 180;
+    const side = Math.cos(-midAngle * RAD) >= 0 ? 1 : -1;
+    const sx = cx + (outerRadius + 3) * Math.cos(-midAngle * RAD);
+    const sy = cy + (outerRadius + 3) * Math.sin(-midAngle * RAD);
+    const mx = cx + (outerRadius + 17) * Math.cos(-midAngle * RAD);
+    const my = cy + (outerRadius + 17) * Math.sin(-midAngle * RAD);
+    const ex = mx + side * 20;
+    const ey = my;
+    const bx = ex + side * 32;
+    const by = ey;
+    const pctText = `${((percent || 0) * 100).toFixed(1)}%`;
+    const shortName =
+      String(name || "").toLowerCase() === "non teaching personnel"
+        ? "Non Teaching"
+        : String(name || "");
+
+    return (
+      <g>
+        <path
+          d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`}
+          stroke={fill}
+          strokeWidth={2}
+          fill="none"
+          strokeLinecap="round"
+        />
+        <circle cx={bx} cy={by} r={33} fill="white" stroke={fill} strokeWidth={2} />
+        <text
+          x={bx}
+          y={by - 5}
+          textAnchor="middle"
+          fill={fill}
+          style={{ fontSize: 12.5, fontWeight: 900 }}
+        >
+          {pctText}
+        </text>
+        <text
+          x={bx}
+          y={by + 12}
+          textAnchor="middle"
+          fill={fill}
+          style={{ fontSize: 11, fontWeight: 800 }}
+        >
+          {shortName}
+        </text>
+      </g>
+    );
+  };
 
   // Non-admin placeholder (keep minimal)
   if (!isAdmin) {
@@ -496,7 +645,10 @@ export default function Dashboard() {
                 }}
               />
               <span style={sub}>
-                Role: <b style={{ color: ink }}>{user.role}</b>
+                Role:{" "}
+                <b style={{ color: ink }}>
+                  {user.role}
+                </b>
               </span>
             </div>
           </div>
@@ -530,7 +682,9 @@ export default function Dashboard() {
             <div style={statLeft}>
               <div style={statLabel}>Total Users</div>
               <div style={statValue}>{totalUsers}</div>
-              <div style={statHint}>Students, counselors, admins</div>
+              <div style={statHint}>
+                Students, counselors, teachers, admins
+              </div>
             </div>
             <div style={accentPill("blue")} aria-hidden>
               <div
@@ -595,7 +749,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Chart + Recent Users */}
+      {/* Chart + User Distribution */}
       <div style={grid2}>
         <div style={shellBg}>
           <div style={chartCard}>
@@ -684,7 +838,7 @@ export default function Dashboard() {
               }}
             >
               <span>
-                Tip: Keep your data clean—use consistent month naming to avoid
+                Tip: Keep your data clean - use consistent month naming to avoid
                 duplicate points.
               </span>
               <span style={{ fontWeight: 950, color: navy }}>GCMS</span>
@@ -694,75 +848,61 @@ export default function Dashboard() {
 
         <div style={shellBg}>
           <div style={card}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
+            <div style={{ display: "grid", gap: 4 }}>
               <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
-                Recent Users
+                User Category Distribution
               </div>
-
-              <Link
-                to="/app/users"
-                style={{
-                  textDecoration: "none",
-                  fontWeight: 950,
-                  color: ink,
-                  padding: "8px 12px",
-                  borderRadius: 14,
-                  border: "1px solid rgba(15, 23, 42, 0.10)",
-                  background: "rgba(255,255,255,0.75)",
-                }}
-              >
-                View all →
-              </Link>
+              <div style={sub}>Students, teachers, and non teaching personnel</div>
             </div>
 
-            <div style={tableWrap}>
-              <table style={table}>
-                <thead>
-                  <tr>
-                    <th style={{ ...th, borderTopLeftRadius: 18 }}>Name</th>
-                    <th style={th}>Email</th>
-                    <th style={th}>Role</th>
-                    <th style={{ ...th, borderTopRightRadius: 18 }}>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentUsers.length === 0 ? (
-                    <tr>
-                      <td style={td} colSpan={4}>
-                        <span style={sub}>
-                          No users found for this academic year.
-                        </span>
-                      </td>
-                    </tr>
-                  ) : (
-                    recentUsers.map((u) => (
-                      <tr key={u.id}>
-                        <td style={{ ...td, fontWeight: 850 }}>
-                          {u.fname} {u.mname ? u.mname + " " : ""}
-                          {u.lname}
-                        </td>
-                        <td style={td}>{u.email}</td>
-                        <td style={td}>
-                          <span style={badge(u.role)}>{roleLabel[u.role]}</span>
-                        </td>
-                        <td style={td}>{u.createdAt}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            <div style={pieWrap}>
+              {totalCategoryUsers === 0 ? (
+                <div style={{ ...sub, padding: "20px 6px" }}>
+                  No users found for this academic year.
+                </div>
+              ) : (
+                <div style={{ height: 330 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={userCategoryData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="52%"
+                        innerRadius={62}
+                        outerRadius={98}
+                        paddingAngle={6}
+                        shape={renderUserSlice}
+                        label={renderUserLabel}
+                        labelLine={false}
+                        isAnimationActive
+                        animationBegin={120}
+                        animationDuration={950}
+                        animationEasing="ease-out"
+                        onMouseEnter={(_, idx) => setActiveUserSlice(idx)}
+                      >
+                        {userCategoryData.map((entry) => (
+                          <Cell key={entry.key} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number | string | undefined, _name, item: any) => {
+                          const safeValue = Number(value ?? 0);
+                          const pct = totalCategoryUsers
+                            ? Math.round((safeValue / totalCategoryUsers) * 100)
+                            : 0;
+                          return [`${safeValue} users (${pct}%)`, item.payload?.name || ""];
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: 10, ...sub }}>
-              Tip: On smaller screens, scroll the table horizontally.
+              Tip: Hover each slice to highlight and see values.
             </div>
           </div>
         </div>
@@ -780,3 +920,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

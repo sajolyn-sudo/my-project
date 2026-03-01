@@ -1,44 +1,66 @@
 import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
+import logo from "../assets/logo.png";
 
 export default function Login() {
   const nav = useNavigate();
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
 
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+
+  // Force a blank login form on page load.
+  useEffect(() => {
+    setEmail("");
+    setPassword("");
+    requestAnimationFrame(() => {
+      if (emailRef.current) emailRef.current.value = "";
+      if (passwordRef.current) passwordRef.current.value = "";
+    });
+  }, []);
 
   const handleLogin = async () => {
     setError("");
 
     const cleanEmail = email.trim();
     if (!cleanEmail) {
-      setError("Email is required");
+      setError("Username is required");
+      return;
+    }
+    if (!password) {
+      setError("Password is required");
       return;
     }
 
     try {
       setLoading(true);
 
-      // ✅ Debug: open DevTools console to see this
-      console.log("Attempt login:", cleanEmail);
-
-      const res = await loginWithApi(cleanEmail);
+      const res = await loginWithApi(cleanEmail, password);
 
       if (!res.ok) {
         setError(res.message || "Login failed");
+        setPassword("");
+        requestAnimationFrame(() => passwordRef.current?.focus());
         return;
       }
 
       const role = String(res.user.role || "").toUpperCase();
 
       if (role === "STUDENT") nav("/app/my-counseling");
+      else if (role === "TEACHER" || role === "NON_TEACHING_PERSONNEL") {
+        nav("/app/referrals");
+      }
       else nav("/app/dashboard");
     } catch (e: any) {
       setError(e?.message || "Failed to fetch");
+      setPassword("");
+      requestAnimationFrame(() => passwordRef.current?.focus());
     } finally {
       setLoading(false);
     }
@@ -102,6 +124,19 @@ export default function Login() {
         justifyContent: "space-between",
         gap: 12,
         marginBottom: 14,
+      },
+      brandRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+      },
+      logo: {
+        width: 32,
+        height: 32,
+        borderRadius: 10,
+        objectFit: "cover",
+        border: "1px solid rgba(35, 16, 62, 0.12)",
+        background: "white",
       },
       brand: {
         fontWeight: 950,
@@ -176,6 +211,19 @@ export default function Login() {
         opacity: 0.75,
         lineHeight: 1.45,
       },
+      switchRow: {
+        textAlign: "center",
+        fontSize: 13,
+        color: "#2A0F52",
+      },
+      switchBtn: {
+        border: "none",
+        background: "transparent",
+        color: "#4A1AA6",
+        cursor: loading ? "not-allowed" : "pointer",
+        fontWeight: 900,
+        padding: 0,
+      },
     };
     return s;
   }, [loading]);
@@ -187,7 +235,10 @@ export default function Login() {
 
       <div style={styles.card}>
         <div style={styles.topRow}>
-          <div style={styles.brand}>GCS Portal</div>
+          <div style={styles.brandRow}>
+            <img src={logo} alt="GCMS Logo" style={styles.logo} />
+            <div style={styles.brand}>GCS Portal</div>
+          </div>
           <button
             className="gcms-btn gcms-btn-pill"
             style={styles.pill}
@@ -200,25 +251,47 @@ export default function Login() {
 
         <h2 style={styles.title}>Welcome back</h2>
         <p style={styles.subtitle}>
-          Enter your email to log in. You’ll be redirected automatically based
-          on your role.
+          Enter your username and password to log in. You'll be redirected
+          automatically based on your role.
         </p>
 
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gap: 8 }}>
-            <div style={styles.label}>Email</div>
+            <div style={styles.label}>Username</div>
             <input
+              ref={emailRef}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               style={styles.input}
-              placeholder="e.g. pink.acas@gmail.com"
+              placeholder="Enter username"
               disabled={loading}
+              autoComplete="off"
+              name="gcms_username"
+              data-lpignore="true"
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleLogin();
               }}
             />
           </div>
 
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={styles.label}>Password</div>
+            <input
+              ref={passwordRef}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={styles.input}
+              placeholder="Enter password"
+              disabled={loading}
+              autoComplete="new-password"
+              name="gcms_password"
+              data-lpignore="true"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleLogin();
+              }}
+            />
+          </div>
           {error && <div style={styles.error}>{error}</div>}
 
           <button
@@ -229,6 +302,17 @@ export default function Login() {
           >
             {loading ? "Logging in..." : "Login"}
           </button>
+
+          <div style={styles.switchRow}>
+            Don't have an account?{" "}
+            <button
+              style={styles.switchBtn}
+              onClick={() => nav("/signup")}
+              disabled={loading}
+            >
+              Sign Up
+            </button>
+          </div>
 
           <div style={styles.note}>
             Note: Accounts must exist in <b>User Management</b>.
