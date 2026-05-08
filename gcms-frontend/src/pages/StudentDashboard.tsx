@@ -1,5 +1,19 @@
-import React, { useMemo, useState } from "react";
-import { useGCMS, fullName } from "../store/gcmsStore";
+import React, { useEffect, useMemo, useState } from "react";
+import useStudentPortalSync from "../hooks/useStudentPortalSync";
+import { useAuthStore } from "../store/authStore";
+import {
+  fetchEntitiesBootstrap,
+  listCounselingCases,
+  listGroupSessions,
+  listReferrals,
+  type AcademicYear as EntityAcademicYear,
+  type CounselingCase as EntityCounselingCase,
+  type GroupSession as EntityGroupSession,
+  type GroupSessionMember as EntityGroupSessionMember,
+  type Referral as EntityReferral,
+  type User as EntityUser,
+  type YearLevel as EntityYearLevel,
+} from "../lib/entitiesApi";
 import {
   ResponsiveContainer,
   LineChart,
@@ -20,6 +34,21 @@ import {
  */
 
 type AnyRecord = Record<string, any>;
+type MediationCase = {
+  id: number;
+  title: string;
+  participantIds: number[];
+  academicYearId: number;
+  date: string;
+  status: "Open" | "In Progress" | "Resolved";
+  issueDescription?: string;
+  createdAt?: string;
+};
+
+const USERS_KEY = "gcms_mock_users_v1";
+const YL_KEY = "gcms_mock_year_levels_v1";
+const YEARS_KEY = "gcms_mock_academic_years_v1";
+const MEDIATION_KEY = "gcms_mock_mediation_cases_v1";
 
 const styles = {
   page: {
@@ -227,6 +256,39 @@ function formatDateTime(d?: string | Date | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function loadLocal<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildFullName(user?: {
+  fname?: string;
+  mname?: string | null;
+  lname?: string;
+} | null) {
+  if (!user) return "Student";
+  return [user.fname, user.mname, user.lname].filter(Boolean).join(" ");
+}
+
+function buildScheduleDateTime(date?: string | null, time?: string | null) {
+  const cleanDate = String(date || "").trim();
+  if (!cleanDate) return null;
+  const cleanTime = String(time || "").trim();
+  const parsed = new Date(
+    cleanTime ? `${cleanDate}T${cleanTime}` : `${cleanDate}T23:59:00`,
+  );
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatScheduleDateTime(date?: string | null, time?: string | null) {
+  const parsed = buildScheduleDateTime(date, time);
+  return parsed ? formatDateTime(parsed) : "â€”";
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -445,6 +507,7 @@ function Carousel({
 }
 
 export default function StudentDashboard() {
+  useStudentPortalSync();
   const store = useGCMS() as AnyRecord;
   const currentUser = store.currentUser as AnyRecord | null;
 
@@ -644,7 +707,7 @@ export default function StudentDashboard() {
     if (!dashboard.upcomingSessions.length) return [];
     return dashboard.upcomingSessions.map((s, i) => ({
       id: s.group_session_id ?? s.id ?? `session-${i}`,
-      title: s.title ?? "Group Session",
+      title: s.topic ?? s.title ?? "Student Circle",
       when: formatDateTime(s.session_date ?? s.date ?? s.schedule),
       location: s.location ?? "TBA",
       note: s.description ?? s.notes ?? "",
@@ -799,10 +862,10 @@ export default function StudentDashboard() {
           {/* Upcoming Sessions Carousel */}
           <div style={{ gridColumn: "span 6", minHeight: 210 }}>
             <Carousel
-              title="Upcoming Group Sessions"
+              title="Upcoming Student Circles"
               items={carouselSessions}
               emptyTitle="No upcoming sessions"
-              emptySubtitle="If you join a group session, it will show here."
+              emptySubtitle="If you join a Student Circle, it will show here."
               render={(s: AnyRecord) => (
                 <>
                   <div

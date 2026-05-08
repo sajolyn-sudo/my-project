@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type AcademicYear = { id: number; name: string; isActive: boolean };
 
@@ -29,16 +31,25 @@ export default function AcademicYears() {
   });
 
   const [name, setName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
 
   useEffect(() => save(years), [years]);
 
-  const addYear = () => {
+  const addYear = async () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || adding) return;
 
-    const nextId = years.length ? Math.max(...years.map((y) => y.id)) + 1 : 1;
-    setYears([{ id: nextId, name: trimmed, isActive: false }, ...years]);
-    setName("");
+    try {
+      setAdding(true);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      const nextId = years.length ? Math.max(...years.map((y) => y.id)) + 1 : 1;
+      setYears([{ id: nextId, name: trimmed, isActive: false }, ...years]);
+      setName("");
+      setShowSuccessNotice(true);
+    } finally {
+      setAdding(false);
+    }
   };
 
   const setActive = (id: number) => {
@@ -62,8 +73,15 @@ export default function AcademicYears() {
             onChange={(e) => setName(e.target.value)}
             style={input}
           />
-          <button onClick={addYear} style={primaryBtn}>
-            Add
+          <button
+            onClick={addYear}
+            style={primaryBtn}
+            disabled={adding || name.trim() === ""}
+          >
+            <span style={buttonContent}>
+              {adding && <LoadingSpinner size={14} />}
+              <span>{adding ? "Adding..." : "Add"}</span>
+            </span>
           </button>
         </div>
       </div>
@@ -125,6 +143,13 @@ export default function AcademicYears() {
           Only one Academic Year should be active at a time.
         </div>
       </div>
+
+      <SuccessNoticeModal
+        open={showSuccessNotice}
+        onClose={() => setShowSuccessNotice(false)}
+        title="Academic Year Added"
+        message="The academic year has been added successfully."
+      />
     </div>
   );
 }
@@ -157,6 +182,13 @@ const primaryBtn: React.CSSProperties = {
   color: "white",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const buttonContent: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
 };
 
 const secondaryBtn: React.CSSProperties = {

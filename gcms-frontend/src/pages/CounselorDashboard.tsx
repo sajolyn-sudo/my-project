@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
+  CheckCircle2,
   ClipboardList,
+  FileText,
   UsersRound,
   Activity,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import {
   ResponsiveContainer,
   LineChart,
@@ -20,6 +23,7 @@ import {
 
 import StatCard from "../components/StatCard";
 import { useAuthStore } from "../store/authStore";
+import { canApproveSystemReferrals } from "../lib/referralApproval";
 import {
   fetchEntitiesBootstrap,
   listCounselingCases,
@@ -49,15 +53,17 @@ function save<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function toDateKey(iso: string): string {
-  const dt = new Date(iso);
+function toDateKey(iso?: string | null): string {
+  const dt = new Date(String(iso || ""));
   if (Number.isNaN(dt.getTime())) return "";
   return `${dt.getFullYear()}-${dt.getMonth() + 1}`;
 }
 
-function formatDateShort(iso: string): string {
-  const dt = new Date(iso);
-  if (Number.isNaN(dt.getTime())) return iso;
+function formatDateShort(iso?: string | null): string {
+  const raw = String(iso || "").trim();
+  if (!raw) return "No date";
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return raw;
   return dt.toLocaleDateString(undefined, {
     month: "short",
     day: "2-digit",
@@ -107,9 +113,11 @@ const listItemStyle: React.CSSProperties = {
   transition: "transform 140ms ease, box-shadow 140ms ease",
 };
 
-export default function CounselorDashboard() {
+export default function STAFFDashboard() {
+  const nav = useNavigate();
   const authUser = useAuthStore((s) => s.user);
-  const counselorId = authUser?.id ?? 0;
+  const STAFFId = authUser?.id ?? 0;
+  const canApproveReferrals = canApproveSystemReferrals(authUser);
 
   const [users, setUsers] = useState<User[]>(() => load<User[]>(USERS_KEY, []));
   const [cases, setCases] = useState<CounselingCase[]>(() =>
@@ -186,12 +194,12 @@ export default function CounselorDashboard() {
   );
 
   const myCases = useMemo(
-    () => cases.filter((c) => c.counselorUserId === counselorId),
-    [cases, counselorId],
+    () => cases.filter((c) => c.STAFFUserId === STAFFId),
+    [cases, STAFFId],
   );
   const mySessions = useMemo(
-    () => sessions.filter((s) => s.counselorUserId === counselorId),
-    [sessions, counselorId],
+    () => sessions.filter((s) => s.STAFFUserId === STAFFId),
+    [sessions, STAFFId],
   );
 
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -200,7 +208,7 @@ export default function CounselorDashboard() {
   const referralsThisMonth = useMemo(() => {
     const now = new Date();
     return referrals.filter((r) => {
-      const dt = new Date(r.referredDate);
+      const dt = new Date(String(r.referredDate || ""));
       if (Number.isNaN(dt.getTime())) return false;
       return dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
     }).length;
@@ -284,7 +292,7 @@ export default function CounselorDashboard() {
       rows.push({
         id: `session-${s.id}`,
         title: s.topic,
-        type: "Group Session",
+        type: "Student Circle",
         date: s.date,
       });
     }
@@ -292,20 +300,27 @@ export default function CounselorDashboard() {
     return rows.slice(0, 5);
   }, [myCases, mySessions, todayIso, usersById]);
 
-  const pendingRows = useMemo<PendingRow[]>(() => {
+  const pendingReferralRows = useMemo<PendingRow[]>(() => {
     const rows: PendingRow[] = [];
 
     for (const r of referrals) {
-      if (r.status !== "New") continue;
+      if (!["Pending", "New"].includes(String(r.status))) continue;
       const student = usersById.get(r.studentId);
       rows.push({
         id: `ref-${r.id}`,
         who: student ? `${student.fname} ${student.lname}` : `Student #${r.studentId}`,
-        what: "Referral Review",
+        what: "Awaiting approval",
         when: formatDateShort(r.referredDate),
-        rawDate: r.referredDate,
+        rawDate: String(r.referredDate || ""),
       });
     }
+
+    rows.sort((a, b) => a.rawDate.localeCompare(b.rawDate));
+    return rows.slice(0, 5);
+  }, [referrals, usersById]);
+
+  const pendingRows = useMemo<PendingRow[]>(() => {
+    const rows: PendingRow[] = [];
 
     for (const c of myCases) {
       if (c.status !== "Pending") continue;
@@ -321,7 +336,23 @@ export default function CounselorDashboard() {
 
     rows.sort((a, b) => (a.rawDate < b.rawDate ? 1 : -1));
     return rows.slice(0, 5);
-  }, [referrals, myCases, usersById]);
+  }, [myCases, usersById]);
+
+  const actionButtonStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    height: 38,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: "1px solid rgba(37,99,235,0.16)",
+    background: "linear-gradient(135deg, rgba(37,99,235,1), rgba(29,78,216,1))",
+    color: "white",
+    fontSize: 12.5,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(37,99,235,0.18)",
+  };
 
   return (
     <div
@@ -410,7 +441,7 @@ export default function CounselorDashboard() {
         <div style={cardStyle}>
           <div style={{ fontWeight: 900, fontSize: 16 }}>Monthly Sessions Trend</div>
           <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>
-            Combined counseling cases + group sessions (last 6 months)
+            Combined counseling cases + Student Circle records (last 6 months)
           </div>
           <div style={{ marginTop: 12, height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -525,15 +556,74 @@ export default function CounselorDashboard() {
 
         <div style={cardStyle}>
           <div style={sectionTitleStyle}>
-            <span>Pending Requests</span>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>{pendingRows.length} items</span>
+            <span>{canApproveReferrals ? "Referral Approval Queue" : "Pending Requests"}</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>
+              {canApproveReferrals ? pendingReferralRows.length : pendingRows.length} items
+            </span>
           </div>
 
+          {canApproveReferrals ? (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: 14,
+                borderRadius: 16,
+                border: "1px solid rgba(37,99,235,0.10)",
+                background: "linear-gradient(135deg, rgba(219,234,254,0.85), rgba(255,255,255,0.96))",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 12,
+                    display: "grid",
+                    placeItems: "center",
+                    background: "rgba(37,99,235,0.12)",
+                    color: "#1d4ed8",
+                  }}
+                >
+                  <CheckCircle2 size={18} />
+                </span>
+                <div style={{ display: "grid", gap: 2 }}>
+                  <div style={{ fontWeight: 900 }}>Referral approval access enabled</div>
+                  <div style={{ fontSize: 12.5, opacity: 0.75 }}>
+                    You can review and approve referrals submitted across the system.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ display: "grid", gap: 2 }}>
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>Waiting for approval</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, lineHeight: 1 }}>
+                    {pendingReferralRows.length}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => nav("/app/counseling?tab=referrals")}
+                  style={actionButtonStyle}
+                >
+                  <FileText size={16} />
+                  Open Referrals
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {pendingRows.length === 0 ? (
-              <div style={{ opacity: 0.7, fontSize: 13 }}>No pending requests.</div>
+            {(canApproveReferrals ? pendingReferralRows.length === 0 : pendingRows.length === 0) ? (
+              <div style={{ opacity: 0.7, fontSize: 13 }}>
+                {canApproveReferrals
+                  ? "No referrals are waiting for approval."
+                  : "No pending requests."}
+              </div>
             ) : (
-              pendingRows.map((row) => (
+              (canApproveReferrals ? pendingReferralRows : pendingRows).map((row) => (
                 <div
                   key={row.id}
                   style={listItemStyle}

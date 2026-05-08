@@ -2,6 +2,8 @@ import type { CSSProperties } from "react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { postFormData } from "../lib/api";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
+import UserManagementProcessingOverlay from "../components/UserManagementProcessingOverlay";
 
 type ImportResponse = {
   ok: boolean;
@@ -11,12 +13,19 @@ type ImportResponse = {
   errors?: string[];
 };
 
-const sampleCsv = `first_name,middle_name,last_name,email,role,college_name,year_level_name,password
-Juan,,Dela Cruz,juan.delacruz@bisu.edu.ph,STUDENT,College of Computer Studies,1st Year,
-Maria,,Santos,maria.santos@bisu.edu.ph,COUNSELOR,,,
-Natan,,Paxley,natan.paxley@bisu.edu.ph,TEACHER,,,
-Luna,,Gonzales,luna.gonzales@bisu.edu.ph,NON_TEACHING_PERSONNEL,,,
+const sampleCsv = `first_name,middle_name,last_name,email,username,role,college_name,course_name,year_level_name,section,password
+Celine,,Abao,celine.abao@bisu.edu.ph,celine.abao,STUDENT,College of Science,Bachelor of Science in Computer Science,3rd Year,A,Welcome123
+Faye,,Tutor,faye.tutor@bisu.edu.ph,faye.tutor,STUDENT,College of Teacher Education,Bachelor of Secondary Education Major in English,3rd Year,A,Welcome123
+Brent,,Sales,brent.sales@bisu.edu.ph,brent.sales,STUDENT,College of Business and Management,Bachelor of Science in Office Administration,3rd Year,B,Welcome123
+May,,Santos,may.santos@bisu.edu.ph,may.santos,STAFF,,,,,Welcome123
+Noel,,Reyes,noel.reyes@bisu.edu.ph,noel.reyes,TEACHER,,,,,Welcome123
+Rica,,Flores,rica.flores@bisu.edu.ph,rica.flores,NON_TEACHING_PERSONNEL,,,,,Welcome123
 `;
+const PROCESSING_MIN_MS = 2000;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export default function UsersImportCsv() {
   const navigate = useNavigate();
@@ -24,6 +33,7 @@ export default function UsersImportCsv() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportResponse | null>(null);
   const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
 
   const fileName = useMemo(() => file?.name || "No file selected", [file]);
 
@@ -41,9 +51,17 @@ export default function UsersImportCsv() {
     fd.append("csv", file);
 
     try {
+      const startedAt = Date.now();
       setLoading(true);
       const res = await postFormData<ImportResponse>("/import_users_csv.php", fd);
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < PROCESSING_MIN_MS) {
+        await wait(PROCESSING_MIN_MS - elapsed);
+      }
       setResult(res);
+      setSuccessMessage(
+        res.message || `Import successful. Inserted ${res.inserted} user(s).`,
+      );
     } catch (e: any) {
       setError(e?.message || "CSV upload failed.");
     } finally {
@@ -63,7 +81,8 @@ export default function UsersImportCsv() {
       <div style={card}>
         <p style={{ marginTop: 0, opacity: 0.82, fontSize: 13 }}>
           Upload a CSV file to bulk create users directly in the database.
-          Emails are normalized to `@bisu.edu.ph`.
+          Emails are normalized to `@bisu.edu.ph`, and imported users are marked
+          as approved/registered right away.
         </p>
 
         <div style={{ display: "grid", gap: 8 }}>
@@ -106,11 +125,25 @@ export default function UsersImportCsv() {
         <h3 style={{ marginTop: 0 }}>CSV Template</h3>
         <p style={{ marginTop: 0, opacity: 0.82, fontSize: 13 }}>
           Required columns: `email`. Recommended: `first_name`, `last_name`,
-          `role` (ex: STUDENT, TEACHER, COUNSELOR, ADMIN, NON_TEACHING_PERSONNEL).
-          For students include `college_name` and `year_level_name`.
+          `username`, `role` (ex: STUDENT, TEACHER, STAFF, ADMIN,
+          NON_TEACHING_PERSONNEL), and `password`. For students include
+          `college_name`, `course_name`, `year_level_name`, and `section`.
         </p>
         <pre style={preStyle}>{sampleCsv}</pre>
       </div>
+
+      <SuccessNoticeModal
+        open={successMessage.length > 0}
+        onClose={() => setSuccessMessage("")}
+        title="Import Successful"
+        message={successMessage}
+      />
+
+      <UserManagementProcessingOverlay
+        open={loading}
+        title="Importing CSV"
+        message="Please wait while we import users into User Management."
+      />
     </div>
   );
 }

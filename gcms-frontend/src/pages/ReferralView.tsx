@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, CalendarDays, GraduationCap, Hash, UserRound } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  GraduationCap,
+  Hash,
+  School,
+  UserRound,
+} from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import {
   createReferralLog,
@@ -9,10 +18,13 @@ import {
   listReferralLogs,
   updateReferral,
 } from "../lib/entitiesApi";
+import { canApproveSystemReferrals } from "../lib/referralApproval";
+import { referralStatusLabel } from "../lib/referralStatus";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
 
 type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";
@@ -44,10 +56,11 @@ type Referral = {
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-  referredDate: string;
+  referredDate?: string | null;
+  referredTime?: string | null;
   reason: string; // comma separated
   notes?: string;
-  status: "New" | "Reviewed" | "Closed";
+  status: "Pending" | "Approved" | "Complete";
   createdAt: string;
 };
 
@@ -86,8 +99,8 @@ function splitReasons(reasonText: string) {
     .filter(Boolean);
 }
 
-function formatDateShort(iso: string) {
-  if (!iso) return "—";
+function formatDateShort(iso?: string | null) {
+  if (!iso) return "â€”";
   const dt = new Date(iso);
   if (Number.isNaN(dt.getTime())) return iso;
   return dt.toLocaleDateString(undefined, {
@@ -97,7 +110,275 @@ function formatDateShort(iso: string) {
   });
 }
 
-/** ✅ Nice toast (no library) */
+function formatTimeShort(value?: string | null) {
+  if (!value) return "â€”";
+  const [hourPart, minutePart] = String(value).split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function normalizeReferralStatus(status: unknown): Referral["status"] {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalized === "approved" ||
+    normalized === "ongoing" ||
+    normalized === "reviewed"
+  ) {
+    return "Approved";
+  }
+  if (
+    normalized === "complete" ||
+    normalized === "completed" ||
+    normalized === "closed" ||
+    normalized === "resolved"
+  ) {
+    return "Complete";
+  }
+
+  return "Pending";
+}
+
+function normalizeReferral(item: {
+  id: number;
+  studentId: number;
+  referredByUserId: number;
+  academicYearId: number;
+  collegeId: number;
+  yearLevelId: number;
+  referredDate?: string | null;
+  referredTime?: string | null;
+  reason: string;
+  notes?: string;
+  status: unknown;
+  createdAt: string;
+}): Referral {
+  return {
+    ...item,
+    status: normalizeReferralStatus(item.status),
+  };
+}
+
+function normalizeReferrals(items: Array<{
+  id: number;
+  studentId: number;
+  referredByUserId: number;
+  academicYearId: number;
+  collegeId: number;
+  yearLevelId: number;
+  referredDate?: string | null;
+  referredTime?: string | null;
+  reason: string;
+  notes?: string;
+  status: unknown;
+  createdAt: string;
+}>): Referral[] {
+  return items.map(normalizeReferral);
+}
+
+function mergeReferralRecord(
+  apiItem: Referral,
+  cachedItem?: Referral,
+): Referral {
+  if (!cachedItem) return apiItem;
+
+  const apiStatus = normalizeReferralStatus(apiItem.status);
+  const cachedStatus = normalizeReferralStatus(cachedItem.status);
+  const shouldKeepCachedStatus =
+    apiStatus === "Pending" && cachedStatus !== "Pending";
+
+  return normalizeReferral({
+    ...apiItem,
+    status: shouldKeepCachedStatus ? cachedStatus : apiStatus,
+    referredDate: apiItem.referredDate ?? cachedItem.referredDate ?? null,
+    referredTime: apiItem.referredTime ?? cachedItem.referredTime ?? null,
+    notes: apiItem.notes ?? cachedItem.notes,
+  });
+}
+
+function mergeReferralRecords(apiItems: Referral[], cachedItems: Referral[]): Referral[] {
+  const cachedById = new Map(cachedItems.map((item) => [item.id, item]));
+  return apiItems.map((item) => mergeReferralRecord(item, cachedById.get(item.id)));
+}
+
+function getReferralScheduleDateTime(referral: {
+  referredDate?: string | null;
+  referredTime?: string | null;
+}) {
+  const datePart = String(referral.referredDate || "").trim();
+  const timePart = String(referral.referredTime || "").trim();
+  if (!datePart || !timePart) return null;
+
+  const parsed = new Date(`${datePart}T${timePart}:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function hasReferralReachedScheduledSession(referral: {
+  referredDate?: string | null;
+  referredTime?: string | null;
+}) {
+  const schedule = getReferralScheduleDateTime(referral);
+  if (!schedule) return false;
+  return schedule.getTime() <= Date.now();
+}
+
+function isReferralOverdue(referral: {
+  referredDate?: string | null;
+  referredTime?: string | null;
+  status: Referral["status"];
+}) {
+  return (
+    referral.status !== "Complete" &&
+    hasReferralReachedScheduledSession(referral)
+  );
+}
+
+/** âœ… Nice toast (no library) */
+function referralDetailActionStyle(
+  base: React.CSSProperties,
+  {
+    active = false,
+    hovered = false,
+    disabled = false,
+    keepBorder = false,
+  }: {
+    active?: boolean;
+    hovered?: boolean;
+    disabled?: boolean;
+    keepBorder?: boolean;
+  } = {},
+): React.CSSProperties {
+  const isInteractive = !disabled;
+  const isActive = active && isInteractive;
+
+  return {
+    ...base,
+    border: keepBorder
+      ? isActive
+        ? "2px solid #5F6D7A"
+        : "2px solid #000000"
+      : isActive
+        ? "1px solid #5F6D7A"
+        : "1px solid var(--border)",
+    background: isActive ? "#5F6D7A" : "white",
+    color: isActive ? "white" : "#000000",
+    boxShadow: "none",
+    transform: isActive
+      ? "translateY(1px) scale(0.98)"
+      : hovered && isInteractive
+        ? "translateY(-1px)"
+        : "translateY(0)",
+    transition:
+      "background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease",
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? "not-allowed" : "pointer",
+    textDecoration: "none",
+  };
+}
+
+type ReferralDetailActionButtonProps = {
+  baseStyle: React.CSSProperties;
+  onClick?: () => void;
+  title: string;
+  ariaLabel?: string;
+  active?: boolean;
+  disabled?: boolean;
+  children: React.ReactNode;
+  type?: "button" | "submit" | "reset";
+};
+
+function ReferralDetailActionButton({
+  baseStyle,
+  onClick,
+  title,
+  ariaLabel,
+  active = false,
+  disabled = false,
+  children,
+  type = "button",
+}: ReferralDetailActionButtonProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={referralDetailActionStyle(baseStyle, {
+        active: active || pressed,
+        hovered,
+        disabled,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+type ReferralDetailActionLinkProps = {
+  to: string;
+  title: string;
+  ariaLabel?: string;
+  baseStyle: React.CSSProperties;
+  children: React.ReactNode;
+  keepBorder?: boolean;
+};
+
+function ReferralDetailActionLink({
+  to,
+  title,
+  ariaLabel,
+  baseStyle,
+  children,
+  keepBorder = false,
+}: ReferralDetailActionLinkProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <Link
+      to={to}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={referralDetailActionStyle(baseStyle, {
+        active: pressed,
+        hovered,
+        keepBorder,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </Link>
+  );
+}
+
 function Toast({
   open,
   message,
@@ -109,6 +390,9 @@ function Toast({
   tone?: "success" | "error" | "info";
   onClose: () => void;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
   if (!open) return null;
 
   const palette =
@@ -118,7 +402,7 @@ function Toast({
           border: "rgba(34,197,94,0.35)",
           text: "#166534",
           dot: "#22c55e",
-          icon: "✓",
+          icon: "âœ“",
         }
       : tone === "error"
         ? {
@@ -199,18 +483,32 @@ function Toast({
 
         <button
           onClick={onClose}
-          style={{
-            border: "1px solid rgba(15,23,42,0.12)",
-            background: "rgba(255,255,255,0.75)",
-            borderRadius: 10,
-            height: 30,
-            padding: "0 10px",
-            cursor: "pointer",
-            fontWeight: 950,
-            color: palette.text,
+          style={referralDetailActionStyle(
+            {
+              border: "1px solid var(--border)",
+              background: "white",
+              borderRadius: 10,
+              height: 30,
+              padding: "0 10px",
+              fontWeight: 950,
+              color: "var(--primary)",
+            },
+            {
+              active: pressed,
+              hovered,
+            },
+          )}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => {
+            setHovered(false);
+            setPressed(false);
           }}
+          onPointerDown={() => setPressed(true)}
+          onPointerUp={() => setPressed(false)}
+          onPointerCancel={() => setPressed(false)}
+          onBlur={() => setPressed(false)}
         >
-          ✕
+          âœ•
         </button>
       </div>
     </div>
@@ -221,12 +519,15 @@ export default function ReferralView() {
   const location = useLocation();
   const { id } = useParams();
   const referralId = Number(id);
-  const listHref = useMemo(
-    () => `/app/referrals${location.search || ""}`,
-    [location.search],
-  );
-
   const authUser = useAuthStore((s) => s.user);
+  const canManageReferralStatus = canApproveSystemReferrals(authUser);
+  const listHref = useMemo(() => {
+    if (authUser?.role === "ADMIN" || authUser?.role === "STAFF") {
+      return "/app/counseling?tab=referrals";
+    }
+    return `/app/referrals${location.search || ""}`;
+  }, [authUser?.role, location.search]);
+
   const users = useMemo<User[]>(() => {
     const base = load<User[]>(USERS_KEY, []);
     if (!authUser) return base;
@@ -259,21 +560,22 @@ export default function ReferralView() {
     [],
   );
 
-  // ✅ STATEFUL: referrals + logs
+  // âœ… STATEFUL: referrals + logs
   const [referrals, setReferrals] = useState<Referral[]>(() =>
-    load<Referral[]>(REF_KEY, []),
+    normalizeReferrals(load<any[]>(REF_KEY, [])),
   );
   const [logs, setLogs] = useState<ReferralLog[]>(() =>
     load<ReferralLog[]>(REF_LOG_KEY, []),
   );
   const [loaded, setLoaded] = useState(false);
 
-  // ✅ Toast state
+  // âœ… Toast state
   const [toast, setToast] = useState<{
     open: boolean;
     message: string;
     tone: "success" | "error" | "info";
   }>({ open: false, message: "", tone: "success" });
+  const [showAddLogNotice, setShowAddLogNotice] = useState(false);
 
   const showToast = (
     message: string,
@@ -289,7 +591,9 @@ export default function ReferralView() {
   // (Optional) reflect localStorage changes from other tabs
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === REF_KEY) setReferrals(load<Referral[]>(REF_KEY, []));
+      if (e.key === REF_KEY) {
+        setReferrals(normalizeReferrals(load<any[]>(REF_KEY, [])));
+      }
       if (e.key === REF_LOG_KEY) setLogs(load<ReferralLog[]>(REF_LOG_KEY, []));
     };
     window.addEventListener("storage", onStorage);
@@ -306,7 +610,11 @@ export default function ReferralView() {
     const p1 = getReferral(referralId)
       .then((res) => {
         if (!alive) return;
-        const item = res.item;
+        const cached = normalizeReferrals(load<any[]>(REF_KEY, []));
+        const item = mergeReferralRecord(
+          normalizeReferral(res.item),
+          cached.find((entry) => entry.id === referralId),
+        );
         setReferrals((prev) => {
           const idx = prev.findIndex((r) => r.id === item.id);
           const next =
@@ -381,9 +689,9 @@ export default function ReferralView() {
     "Others (Specify in Notes)",
   ];
 
-  const [status, setStatus] = useState<Referral["status"]>("New");
+  const [status, setStatus] = useState<Referral["status"]>("Pending");
   useEffect(() => {
-    setStatus(found?.status ?? "New");
+    setStatus(found?.status ?? "Pending");
   }, [found?.status]);
   const [detailsText, setDetailsText] = useState("");
   useEffect(() => {
@@ -406,9 +714,38 @@ export default function ReferralView() {
 
   const saveStatus = () => {
     if (!found) return;
+    if (!canManageReferralStatus) {
+      showToast(
+        "Only the admin or Carissa can approve and update referral status.",
+        "error",
+      );
+      return;
+    }
+    if (
+      status === "Approved" &&
+      (!String(found.referredDate || "").trim() || !String(found.referredTime || "").trim())
+    ) {
+      showToast(
+        "Approve the referral from the referrals list so you can set its schedule first.",
+        "error",
+      );
+      return;
+    }
+    if (
+      status === "Complete" &&
+      !hasReferralReachedScheduledSession(found)
+    ) {
+      showToast(
+        "Complete will only be available after the scheduled date and time have been reached.",
+        "error",
+      );
+      return;
+    }
+
     updateReferral({ id: found.id, status, notes: detailsText })
       .then((res) => {
-        const next = res.referrals ?? [];
+        const cached = normalizeReferrals(load<any[]>(REF_KEY, []));
+        const next = mergeReferralRecords(normalizeReferrals(res.referrals ?? []), cached);
         setReferrals(next);
         save(REF_KEY, next);
         showToast("Referral saved!", "success");
@@ -445,6 +782,7 @@ export default function ReferralView() {
       setNote("");
       setActionType("Follow-up");
       showToast("Log added!", "success");
+      setShowAddLogNotice(true);
     } catch (e: any) {
       showToast(e?.message || "Failed to add log.", "error");
     }
@@ -470,14 +808,21 @@ export default function ReferralView() {
   }, [logs, found]);
 
   // Styles
-  const page: React.CSSProperties = { display: "grid", gap: 16 };
+  const page: React.CSSProperties = { display: "grid", gap: 14 };
+  const pageTitle: React.CSSProperties = {
+    margin: 0,
+    marginRight: "auto",
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#1e293b",
+  };
 
   const paper: React.CSSProperties = {
-    background: "var(--card)",
+    background: "white",
     padding: 18,
     borderRadius: 18,
-    boxShadow: "var(--shadow)",
-    border: "1px solid var(--border)",
+    boxShadow: "0 14px 34px rgba(15,23,42,0.06)",
+    border: "1px solid rgba(15,23,42,0.08)",
   };
 
   const topBar: React.CSSProperties = {
@@ -498,38 +843,11 @@ export default function ReferralView() {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-  };
-
-  const headerBlock: React.CSSProperties = {
-    display: "grid",
-    gap: 2,
-    textAlign: "center",
-    paddingBottom: 10,
-    borderBottom: "1px solid var(--border)",
-  };
-
-  const formTitle: React.CSSProperties = {
-    margin: 0,
-    fontWeight: 1000,
-    letterSpacing: 0.5,
-  };
-
-  const formSubtitle: React.CSSProperties = {
-    margin: 0,
-    fontSize: 12,
-    opacity: 0.85,
-    fontWeight: 800,
-  };
-
-  const formName: React.CSSProperties = {
-    margin: "8px 0 0",
-    fontSize: 16,
-    fontWeight: 1000,
-    letterSpacing: 0.6,
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
 
   const grid2: React.CSSProperties = {
-    display: "grid",
+    display: "none",
     gridTemplateColumns: "1fr 1fr",
     gap: 12,
     marginTop: 14,
@@ -556,14 +874,100 @@ export default function ReferralView() {
 
   const sectionTitle: React.CSSProperties = {
     margin: "14px 0 8px",
-    fontSize: 12,
-    fontWeight: 1000,
-    letterSpacing: 0.6,
+    fontSize: 12.5,
+    fontWeight: 800,
+    letterSpacing: 0.16,
     textTransform: "uppercase",
-    opacity: 0.85,
+    color: "#64748b",
+  };
+
+  const summaryValue: React.CSSProperties = {
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#0f172a",
+    lineHeight: 1.25,
+  };
+
+  const summarySubtext: React.CSSProperties = {
+    marginTop: 4,
+    fontSize: 12.5,
+    color: "#64748b",
+  };
+
+  const infoChipWrap: React.CSSProperties = {
+    marginTop: 18,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 12,
+  };
+
+  const infoChip: React.CSSProperties = {
+    minHeight: 52,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(15,23,42,0.10)",
+    background: "white",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+  };
+
+  const infoChipIcon: React.CSSProperties = {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    background: "rgba(248,250,252,0.96)",
+    border: "1px solid rgba(15,23,42,0.08)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#475569",
+    flexShrink: 0,
+  };
+
+  const infoChipLabel: React.CSSProperties = {
+    fontSize: 11.5,
+    fontWeight: 800,
+    letterSpacing: 0.16,
+    textTransform: "uppercase",
+    color: "#64748b",
+    lineHeight: 1.1,
+  };
+
+  const infoChipValue: React.CSSProperties = {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "#0f172a",
+    lineHeight: 1.35,
+  };
+
+  const reasonWrap: React.CSSProperties = {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 10,
+  };
+
+  const reasonChip: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 34,
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background: "white",
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: "#0f172a",
+  };
+
+  const metaValue: React.CSSProperties = {
+    fontSize: 12.5,
+    color: "#64748b",
+    fontWeight: 500,
   };
 
   const checkboxPanel: React.CSSProperties = {
+    display: "none",
     border: "1px solid var(--border)",
     borderRadius: 16,
     padding: 12,
@@ -571,7 +975,7 @@ export default function ReferralView() {
   };
 
   const checkboxGrid: React.CSSProperties = {
-    display: "grid",
+    display: "none",
     gridTemplateColumns: "1fr 1fr",
     gap: 8,
   };
@@ -586,41 +990,32 @@ export default function ReferralView() {
   };
 
   const detailsBox: React.CSSProperties = {
-    border: "1px solid var(--border)",
-    borderRadius: 16,
+    border: "1px solid rgba(15,23,42,0.08)",
+    borderRadius: 12,
     padding: 12,
-    background: "rgba(255,255,255,0.65)",
-    minHeight: 90,
+    background: "white",
+    minHeight: 110,
     whiteSpace: "pre-wrap",
-    lineHeight: 1.35,
-    fontWeight: 800,
+    lineHeight: 1.55,
+    fontSize: 12.5,
+    fontWeight: 500,
+    color: "#0f172a",
   };
 
   const pillRow: React.CSSProperties = {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 12,
+    display: "none",
   };
 
   const pill: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 8,
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.65)",
-    fontWeight: 900,
-    fontSize: 12,
+    display: "none",
   };
 
   const card: React.CSSProperties = {
-    background: "var(--card)",
+    background: "white",
     padding: 16,
     borderRadius: 16,
-    boxShadow: "var(--shadow)",
-    border: "1px solid var(--border)",
+    boxShadow: "0 14px 34px rgba(15,23,42,0.06)",
+    border: "1px solid rgba(15,23,42,0.08)",
   };
 
   const inputStyle: React.CSSProperties = {
@@ -650,29 +1045,33 @@ export default function ReferralView() {
     height: 40,
     padding: "0 16px",
     borderRadius: 10,
-    border: "none",
-    background: "var(--primary)",
-    color: "white",
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "var(--primary)",
     fontWeight: 900,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
 
   const dangerButton: React.CSSProperties = {
     height: 32,
     padding: "0 12px",
     borderRadius: 8,
-    border: "none",
-    background: "#D9534F",
-    color: "white",
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "var(--primary)",
     cursor: "pointer",
     fontWeight: 900,
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
 
   const label: React.CSSProperties = {
-    fontSize: 13,
-    fontWeight: 900,
-    opacity: 0.85,
+    fontSize: 12.5,
+    fontWeight: 800,
+    color: "#64748b",
+    letterSpacing: 0.16,
+    textTransform: "uppercase",
     marginBottom: 6,
   };
 
@@ -688,17 +1087,15 @@ export default function ReferralView() {
           />
 
           <div style={topBar}>
-            <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
-              Referral Details
-            </h2>
-            <Link
+            <h2 style={pageTitle}>Referral Details</h2>
+            <ReferralDetailActionLink
               to={listHref}
-              style={backIconLink}
               title="Back to Referrals"
-              aria-label="Back to Referrals"
+              ariaLabel="Back to Referrals"
+              baseStyle={backIconLink}
             >
               <ArrowLeft size={18} />
-            </Link>
+            </ReferralDetailActionLink>
           </div>
 
           <div style={card}>
@@ -717,17 +1114,15 @@ export default function ReferralView() {
         />
 
         <div style={topBar}>
-          <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
-            Referral Details
-          </h2>
-          <Link
+          <h2 style={pageTitle}>Referral Details</h2>
+          <ReferralDetailActionLink
             to={listHref}
-            style={backIconLink}
             title="Back to Referrals"
-            aria-label="Back to Referrals"
+            ariaLabel="Back to Referrals"
+            baseStyle={backIconLink}
           >
             <ArrowLeft size={18} />
-          </Link>
+          </ReferralDetailActionLink>
         </div>
 
         <div style={card}>
@@ -747,7 +1142,10 @@ export default function ReferralView() {
     ? `${student.fname} ${student.mname ? student.mname + " " : ""}${student.lname}`
     : "Unknown Student";
 
-  const selected = new Set(splitReasons(found.reason));
+  const selectedReasons = splitReasons(found.reason);
+  const selected = new Set(selectedReasons);
+  const canCompleteReferral = hasReferralReachedScheduledSession(found);
+  const showOverdueWarning = isReferralOverdue(found);
 
   return (
     <div style={page}>
@@ -757,27 +1155,30 @@ export default function ReferralView() {
         tone={toast.tone}
         onClose={() => setToast((p) => ({ ...p, open: false }))}
       />
+      <SuccessNoticeModal
+        open={showAddLogNotice}
+        onClose={() => setShowAddLogNotice(false)}
+        title="Log Added"
+        message="The referral log has been added successfully."
+      />
 
       <div style={topBar}>
-        <h2 style={{ fontWeight: 1000, marginRight: "auto" }}>
-          Referral Details
-        </h2>
-        <Link
+        <h2 style={pageTitle}>Referral Details</h2>
+        <ReferralDetailActionLink
           to={listHref}
-          style={backIconLink}
           title="Back to Referrals"
-          aria-label="Back to Referrals"
+          ariaLabel="Back to Referrals"
+          baseStyle={backIconLink}
         >
           <ArrowLeft size={18} />
-        </Link>
+        </ReferralDetailActionLink>
       </div>
 
       <div style={paper}>
-        <div style={headerBlock}>
-          <p style={formSubtitle}>Republic of the Philippines</p>
-          <p style={formTitle}>BOHOL ISLAND STATE UNIVERSITY</p>
-          <p style={formSubtitle}>Guidance and Counseling Services Center</p>
-          <p style={formName}>COUNSELING REFERRAL FORM - INTERNAL</p>
+        <div>
+          <div style={label}>Student</div>
+          <div style={summaryValue}>{studentName}</div>
+          <div style={summarySubtext}>{student?.email ?? "-"}</div>
         </div>
 
         <div style={grid2}>
@@ -791,7 +1192,7 @@ export default function ReferralView() {
           <div style={lineField}>
             <div style={fieldLabel}>Course / Year / Section</div>
             <div style={fieldValue}>
-              {college?.name ?? "—"} • {yl?.name ?? "—"}
+              {college?.name ?? "â€”"} â€¢ {yl?.name ?? "â€”"}
             </div>
           </div>
         </div>
@@ -799,20 +1200,116 @@ export default function ReferralView() {
         <div style={pillRow}>
           <span style={pill}>
             <CalendarDays size={14} />
-            Referred Date: {formatDateShort(found.referredDate)}
+            Scheduled Date: {formatDateShort(found.referredDate ?? "")}
+          </span>
+          <span style={pill}>
+            <CalendarDays size={14} />
+            Time: {formatTimeShort(found.referredTime)}
           </span>
           <span style={pill}>
             <GraduationCap size={14} />
-            Academic Year: {ay?.name ?? "—"}
+            Academic Year: {ay?.name ?? "â€”"}
           </span>
           <span style={pill}>
             <UserRound size={14} />
-            Referred By: {referredBy ? labelUserById(referredBy.id) : "—"}
+            Referred By: {referredBy ? labelUserById(referredBy.id) : "â€”"}
           </span>
           <span style={pill}>
             <Hash size={14} />
             Referral ID: #{found.id}
           </span>
+        </div>
+
+        <div style={infoChipWrap}>
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <CalendarDays size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Referred Date</div>
+              <div style={infoChipValue}>
+                {found.referredDate ? formatDateShort(found.referredDate) : "-"}
+              </div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <Clock3 size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Time</div>
+              <div style={infoChipValue}>
+                {found.referredTime ? formatTimeShort(found.referredTime) : "-"}
+              </div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <GraduationCap size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Academic Year</div>
+              <div style={infoChipValue}>{ay?.name ?? "-"}</div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <School size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>College / Year Level</div>
+              <div style={infoChipValue}>
+                {college?.name ?? "-"} / {yl?.name ?? "-"}
+              </div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <UserRound size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Referred By</div>
+              <div style={infoChipValue}>
+                {referredBy ? labelUserById(referredBy.id) : "-"}
+              </div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <CheckCircle2 size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Status</div>
+              <div
+                style={{
+                  ...infoChipValue,
+                  color:
+                    status === "Complete"
+                      ? "#166534"
+                      : status === "Approved"
+                        ? "#1d4ed8"
+                        : "#92400e",
+                }}
+              >
+                {referralStatusLabel(status)}
+              </div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <Hash size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Referral ID</div>
+              <div style={infoChipValue}>#{found.id}</div>
+            </div>
+          </div>
         </div>
 
         <div style={sectionTitle}>Reason for Referral</div>
@@ -836,13 +1333,25 @@ export default function ReferralView() {
                         : "transparent",
                     }}
                   >
-                    {checked ? "✓" : ""}
+                    {checked ? "âœ“" : ""}
                   </span>
                   <span style={{ opacity: checked ? 1 : 0.78 }}>{r}</span>
                 </div>
               );
             })}
           </div>
+        </div>
+
+        <div style={reasonWrap}>
+          {selectedReasons.length === 0 ? (
+            <div style={metaValue}>No referral reasons selected.</div>
+          ) : (
+            selectedReasons.map((reason) => (
+              <span key={reason} style={reasonChip}>
+                {reason}
+              </span>
+            ))
+          )}
         </div>
 
         <div style={sectionTitle}>Details</div>
@@ -863,12 +1372,18 @@ export default function ReferralView() {
             flexWrap: "wrap",
           }}
         >
-          <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+          <div style={{ fontSize: 12.5, color: "#64748b", fontWeight: 700 }}>
             Created: <b>{found.createdAt}</b>
           </div>
-          <button onClick={saveStatus} style={primaryButton}>
+          <ReferralDetailActionButton
+            onClick={saveStatus}
+            title="Save"
+            ariaLabel="Save"
+            baseStyle={primaryButton}
+            disabled={!canManageReferralStatus}
+          >
             Save
-          </button>
+          </ReferralDetailActionButton>
         </div>
       </div>
 
@@ -888,17 +1403,59 @@ export default function ReferralView() {
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as Referral["status"])}
-              style={{ ...inputStyle, width: "100%" }}
+              disabled={!canManageReferralStatus}
+              style={{
+                ...inputStyle,
+                width: "100%",
+                border:
+                  showOverdueWarning
+                    ? "1px solid rgba(220,38,38,0.35)"
+                    : inputStyle.border,
+                background: showOverdueWarning
+                  ? "rgba(254,242,242,0.96)"
+                  : inputStyle.background,
+              }}
             >
-              <option value="New">New</option>
-              <option value="Reviewed">Reviewed</option>
-              <option value="Closed">Closed</option>
+              <option value="Pending">{referralStatusLabel("Pending")}</option>
+              <option
+                value="Approved"
+                disabled={!String(found?.referredDate || "").trim() || !String(found?.referredTime || "").trim()}
+              >
+                Approved
+              </option>
+              <option value="Complete" disabled={!canCompleteReferral}>
+                Complete
+              </option>
             </select>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                color: !canManageReferralStatus
+                  ? "#64748b"
+                  : canCompleteReferral
+                    ? "#166534"
+                    : "#b45309",
+              }}
+            >
+              {!canManageReferralStatus
+                ? "Only the admin or Carissa can update referral status."
+                : canCompleteReferral
+                  ? "The scheduled session has already occurred. Complete is now available."
+                  : "Complete will be available once the scheduled date and time have been reached."}
+            </div>
           </div>
 
-          <button onClick={saveStatus} style={primaryButton}>
+          <ReferralDetailActionButton
+            onClick={saveStatus}
+            title="Save"
+            ariaLabel="Save"
+            baseStyle={primaryButton}
+            disabled={!canManageReferralStatus}
+          >
             Save
-          </button>
+          </ReferralDetailActionButton>
         </div>
       </div>
 
@@ -956,9 +1513,14 @@ export default function ReferralView() {
             justifyContent: "flex-end",
           }}
         >
-          <button onClick={addLog} style={primaryButton}>
+          <ReferralDetailActionButton
+            onClick={addLog}
+            title="Add Log"
+            ariaLabel="Add Log"
+            baseStyle={primaryButton}
+          >
             + Add Log
-          </button>
+          </ReferralDetailActionButton>
         </div>
 
         <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
@@ -985,11 +1547,16 @@ export default function ReferralView() {
                   }}
                 >
                   <div style={{ fontWeight: 1000 }}>
-                    {l.actionType} • {formatDateShort(l.actionDate)}
+                    {l.actionType} â€¢ {formatDateShort(l.actionDate)}
                   </div>
-                  <button onClick={() => deleteLog(l.id)} style={dangerButton}>
+                  <ReferralDetailActionButton
+                    onClick={() => deleteLog(l.id)}
+                    title="Delete"
+                    ariaLabel="Delete"
+                    baseStyle={dangerButton}
+                  >
                     Delete
-                  </button>
+                  </ReferralDetailActionButton>
                 </div>
 
                 <div style={{ opacity: 0.88, fontWeight: 800 }}>{l.note}</div>
@@ -1001,3 +1568,4 @@ export default function ReferralView() {
     </div>
   );
 }
+

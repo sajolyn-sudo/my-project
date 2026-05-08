@@ -1,15 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { AlertTriangle, Eye, History, Link2, List, Paperclip, Printer } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  Eye,
+  History,
+  List,
+  Plus,
+  Printer,
+  Search,
+  SlidersHorizontal,
+  Users,
+  X,
+} from "lucide-react";
 import Modal from "../components/Modal";
 import DropdownSelect from "../components/DropdownSelect";
-import { createGroupSession, listGroupSessions } from "../lib/entitiesApi";
+import FormattedDateInput from "../components/FormattedDateInput";
+import { createGroupSession, fetchEntitiesBootstrap, listGroupSessions } from "../lib/entitiesApi";
+import { matchesSearchPrefix } from "../lib/searchPrefix";
 import { useAuthStore } from "../store/authStore";
 import { postJSON } from "../lib/api";
 
 type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";
@@ -23,6 +39,10 @@ type User = {
   role: Role;
   collegeId?: number;
   yearLevelId?: number;
+  courseId?: number | null;
+  courseName?: string | null;
+  section?: string | null;
+  isArchived?: boolean;
 };
 
 type College = { id: number; name: string };
@@ -44,14 +64,17 @@ type GroupSession = {
   id: number;
   academicYearId: number;
   collegeId: number;
+  courseId?: number | null;
   yearLevelId: number;
 
-  counselorUserId: number;
+  STAFFUserId: number;
   date: string;
+  time?: string | null;
   location: string;
   topic: string;
+  facilitatorUserId?: number | null;
+  facilitator?: string;
   notes?: string;
-  attachment?: string;
   createdAt: string;
 };
 
@@ -60,6 +83,8 @@ type GroupSessionMember = {
   groupSessionId: number;
   studentUserId: number;
 };
+
+const YEAR_LEVEL_OPTIONS = ["1st Year", "2nd Year", "3rd Year", "4th Year"];
 
 const USERS_KEY = "gcms_mock_users_v1";
 const COLLEGES_KEY = "gcms_mock_colleges_v1";
@@ -94,33 +119,286 @@ function userCourseId(u: User): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function toDateKey(value?: string): string {
+  if (!value) return "";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  const year = dt.getFullYear();
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseSortTimestamp(
+  primaryDate?: string | null,
+  time?: string | null,
+  fallbackDate?: string | null,
+): number {
+  const candidates = [primaryDate, fallbackDate];
+
+  for (const candidate of candidates) {
+    const raw = String(candidate || "").trim();
+    if (!raw) continue;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const parsed = new Date(`${raw}T${String(time || "00:00").trim() || "00:00"}:00`);
+      if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+    }
+
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+  }
+
+  return 0;
+}
+
+function compareNewestGroupSessions(a: GroupSession, b: GroupSession): number {
+  const byCreatedAt =
+    parseSortTimestamp(b.createdAt, b.time, b.date) -
+    parseSortTimestamp(a.createdAt, a.time, a.date);
+  if (byCreatedAt !== 0) return byCreatedAt;
+
+  const bySchedule =
+    parseSortTimestamp(b.date, b.time, b.createdAt) -
+    parseSortTimestamp(a.date, a.time, a.createdAt);
+  if (bySchedule !== 0) return bySchedule;
+
+  return b.id - a.id;
+}
+
+function studentCircleActionStyle(
+  base: React.CSSProperties,
+  {
+    active = false,
+    hovered = false,
+    disabled = false,
+    keepBorder = false,
+  }: {
+    active?: boolean;
+    hovered?: boolean;
+    disabled?: boolean;
+    keepBorder?: boolean;
+  } = {},
+): React.CSSProperties {
+  const isInteractive = !disabled;
+  const isActive = active && isInteractive;
+
+  return {
+    ...base,
+    border: keepBorder
+      ? isActive
+        ? "2px solid #5F6D7A"
+        : "2px solid #000000"
+      : isActive
+        ? "1px solid #5F6D7A"
+        : "1px solid var(--border)",
+    background: isActive ? "#5F6D7A" : "white",
+    color: isActive ? "white" : "#000000",
+    boxShadow: "none",
+    transform: isActive
+      ? "translateY(1px) scale(0.98)"
+      : hovered && isInteractive
+        ? "translateY(-1px)"
+        : "translateY(0)",
+    transition:
+      "background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease",
+    opacity: disabled ? 0.6 : 1,
+    cursor: disabled ? "not-allowed" : "pointer",
+    textDecoration: "none",
+  };
+}
+
+type StudentCircleActionButtonProps = {
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  title: string;
+  ariaLabel?: string;
+  baseStyle: React.CSSProperties;
+  children: React.ReactNode;
+  type?: "button" | "submit" | "reset";
+  keepBorder?: boolean;
+};
+
+function StudentCircleActionButton({
+  active = false,
+  disabled = false,
+  onClick,
+  title,
+  ariaLabel,
+  baseStyle,
+  children,
+  type = "button",
+  keepBorder = false,
+}: StudentCircleActionButtonProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={studentCircleActionStyle(baseStyle, {
+        active: active || pressed,
+        hovered,
+        disabled,
+        keepBorder,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+type StudentCircleActionLinkProps = {
+  to: string;
+  title: string;
+  ariaLabel?: string;
+  baseStyle: React.CSSProperties;
+  children: React.ReactNode;
+  keepBorder?: boolean;
+};
+
+function StudentCircleActionLink({
+  to,
+  title,
+  ariaLabel,
+  baseStyle,
+  children,
+  keepBorder = false,
+}: StudentCircleActionLinkProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <Link
+      to={to}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={studentCircleActionStyle(baseStyle, {
+        active: pressed,
+        hovered,
+        keepBorder,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </Link>
+  );
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function shiftMonth(date: Date, delta: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+function sameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
+function formatSessionTimeLabel(value?: string | null): string {
+  if (!value) return "-";
+  const [hourPart, minutePart] = value.split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+  const key = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  if (key === "09:00") return "9 AM - 11 AM";
+  if (key === "13:00") return "1 PM - 3 PM";
+  if (key === "15:00") return "3 PM - 5 PM";
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
 export default function GroupSessions() {
   const currentUser = useAuthStore((s) => s.user);
   const [searchParams, setSearchParams] = useSearchParams();
-  const users = useMemo<User[]>(() => load<User[]>(USERS_KEY, []), []);
-  const colleges = useMemo<College[]>(
-    () => load<College[]>(COLLEGES_KEY, []),
-    [],
+  const [users, setUsers] = useState<User[]>(() => load<User[]>(USERS_KEY, []));
+  const [colleges, setColleges] = useState<College[]>(() =>
+    load<College[]>(COLLEGES_KEY, []),
   );
-  const years = useMemo<AcademicYear[]>(
-    () =>
-      load<AcademicYear[]>(YEARS_KEY, [
-        { id: 1, name: "2024–2025", isActive: false },
-        { id: 2, name: "2025–2026", isActive: true },
-      ]),
-    [],
+  const [years, setYears] = useState<AcademicYear[]>(() =>
+    load<AcademicYear[]>(YEARS_KEY, [
+      { id: 1, name: "2024â€“2025", isActive: false },
+      { id: 2, name: "2025â€“2026", isActive: true },
+    ]),
   );
-  const yearLevels = useMemo<YearLevel[]>(
-    () => load<YearLevel[]>(YL_KEY, []),
-    [],
+  const [yearLevels, setYearLevels] = useState<YearLevel[]>(() =>
+    load<YearLevel[]>(YL_KEY, []),
   );
 
-  const counselors = useMemo(
-    () => users.filter((u) => u.role === "COUNSELOR"),
+  useEffect(() => {
+    let alive = true;
+    fetchEntitiesBootstrap()
+      .then((payload) => {
+        if (!alive) return;
+
+        const nextUsers = payload.users ?? [];
+        const nextColleges = payload.colleges ?? [];
+        const nextYears = payload.academicYears ?? [];
+        const nextYearLevels = payload.yearLevels ?? [];
+
+        if (nextUsers.length) {
+          setUsers(nextUsers as User[]);
+          save(USERS_KEY, nextUsers);
+        }
+        if (nextColleges.length) {
+          setColleges(nextColleges);
+          save(COLLEGES_KEY, nextColleges);
+        }
+        if (nextYears.length) {
+          setYears(nextYears);
+          save(YEARS_KEY, nextYears);
+        }
+        if (nextYearLevels.length) {
+          setYearLevels(nextYearLevels);
+          save(YL_KEY, nextYearLevels);
+        }
+      })
+      .catch(() => {
+        // Keep cached values when bootstrap is unavailable.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const STAFFs = useMemo(
+    () => users.filter((u) => u.role === "STAFF"),
     [users],
   );
   const students = useMemo(
-    () => users.filter((u) => u.role === "STUDENT"),
+    () =>
+      users.filter(
+        (u) =>
+          u.role === "STUDENT" &&
+          !Boolean((u as User & { isArchived?: boolean }).isArchived),
+      ),
     [users],
   );
 
@@ -181,8 +459,17 @@ export default function GroupSessions() {
   const [filterYearLevelId, setFilterYearLevelId] = useState<number>(() =>
     parsePositiveInt(searchParams.get("yearLevelId")),
   );
+  const [filterDate, setFilterDate] = useState<string>(() =>
+    String(searchParams.get("date") || "").trim(),
+  );
   const [showHistory, setShowHistory] = useState<boolean>(() => {
     return searchParams.get("tab") === "history";
+  });
+  const [showFilters, setShowFilters] = useState(false);
+  const [showDateCalendar, setShowDateCalendar] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
+    const seed = String(searchParams.get("date") || "").trim();
+    return startOfMonth(seed ? new Date(seed) : new Date());
   });
 
   useEffect(() => {
@@ -199,12 +486,14 @@ export default function GroupSessions() {
     if (filterCollegeId) next.set("collegeId", String(filterCollegeId));
     if (filterCourseId) next.set("courseId", String(filterCourseId));
     if (filterYearLevelId) next.set("yearLevelId", String(filterYearLevelId));
+    if (filterDate) next.set("date", filterDate);
     if (showHistory) next.set("tab", "history");
     setSearchParams(next, { replace: true });
   }, [
     filterCollegeId,
     filterCourseId,
     filterYearLevelId,
+    filterDate,
     showHistory,
     setSearchParams,
   ]);
@@ -240,12 +529,24 @@ export default function GroupSessions() {
     return sessions
       .filter((s) => s.academicYearId === selectedAyId)
       .filter((s) => (filterCollegeId ? s.collegeId === filterCollegeId : true))
+      .filter((s) => (filterCourseId ? sessionCourseId(s) === filterCourseId : true))
       .filter((s) =>
         filterYearLevelId ? s.yearLevelId === filterYearLevelId : true,
       )
-      .sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [sessions, selectedAyId, filterCollegeId, filterYearLevelId]);
+      .filter((s) => (filterDate ? s.date === filterDate : true))
+      .sort(compareNewestGroupSessions);
+  }, [sessions, selectedAyId, filterCollegeId, filterCourseId, filterYearLevelId, filterDate, members, users]);
   const todayIso = new Date().toISOString().slice(0, 10);
+  const calendarBaseSessions = useMemo(() => {
+    return sessions
+      .filter((s) => s.academicYearId === selectedAyId)
+      .filter((s) => (filterCollegeId ? s.collegeId === filterCollegeId : true))
+      .filter((s) => (filterCourseId ? sessionCourseId(s) === filterCourseId : true))
+      .filter((s) =>
+        filterYearLevelId ? s.yearLevelId === filterYearLevelId : true,
+      )
+      .sort(compareNewestGroupSessions);
+  }, [sessions, selectedAyId, filterCollegeId, filterCourseId, filterYearLevelId, members, users]);
   const activeSessions = useMemo(
     () => visibleSessions.filter((s) => s.date >= todayIso),
     [visibleSessions, todayIso],
@@ -254,25 +555,36 @@ export default function GroupSessions() {
     () => visibleSessions.filter((s) => s.date < todayIso),
     [visibleSessions, todayIso],
   );
+  const calendarDisplaySessions = useMemo(
+    () =>
+      showHistory
+        ? calendarBaseSessions.filter((s) => s.date < todayIso)
+        : calendarBaseSessions.filter((s) => s.date >= todayIso),
+    [calendarBaseSessions, showHistory, todayIso],
+  );
   const displaySessions = showHistory ? historySessions : activeSessions;
 
-  const labelUser = (id: number) => {
-    const u = users.find((x) => x.id === id);
-    if (!u) return "Unknown";
-    const full = `${u.fname} ${u.mname ? u.mname + " " : ""}${u.lname}`;
-    return `${full} (${u.email})`;
-  };
   const labelUserName = (id: number) => {
     const u = users.find((x) => x.id === id);
     if (!u) return "Unknown";
-    return `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`.trim();
+    return `${u.fname} ${u.mname ? u.mname + " " : ""}${u.lname}`.trim();
   };
-
   const labelCollege = (id: number) =>
-    colleges.find((c) => c.id === id)?.name ?? "—";
-  const labelAy = (id: number) => years.find((y) => y.id === id)?.name ?? "—";
+    colleges.find((c) => c.id === id)?.name ?? "â€”";
+  const labelCourse = (id: number) =>
+    courses.find((c) => c.id === id)?.name ?? "â€”";
+  const labelAy = (id: number) => years.find((y) => y.id === id)?.name ?? "â€”";
   const labelYL = (id: number) =>
-    yearLevels.find((y) => y.id === id)?.name ?? "—";
+    yearLevels.find((y) => y.id === id)?.name ?? "â€”";
+
+  function sessionCourseId(session: GroupSession): number {
+    const explicit = Number(session.courseId ?? 0);
+    if (explicit > 0) return explicit;
+    const firstMember = members.find((m) => m.groupSessionId === session.id);
+    if (!firstMember) return 0;
+    const student = users.find((u) => u.id === firstMember.studentUserId);
+    return student ? userCourseId(student) : 0;
+  }
 
   const memberCount = (sessionId: number) =>
     members.filter((m) => m.groupSessionId === sessionId).length;
@@ -281,61 +593,283 @@ export default function GroupSessions() {
     const qs = searchParams.toString();
     return qs ? `?${qs}` : "";
   }, [searchParams]);
+  const scheduleDateKeys = useMemo(
+    () =>
+      new Set(
+        calendarDisplaySessions
+          .map((session) => toDateKey(session.date))
+          .filter(Boolean),
+      ),
+    [calendarDisplaySessions],
+  );
+  const scheduleTimesByDate = useMemo(() => {
+    const map = new Map<string, string[]>();
+    calendarDisplaySessions.forEach((session) => {
+      const key = toDateKey(session.date);
+      if (!key || !session.time) return;
+      const label = formatSessionTimeLabel(session.time);
+      const current = map.get(key) ?? [];
+      if (!current.includes(label)) current.push(label);
+      map.set(key, current);
+    });
+    return map;
+  }, [calendarDisplaySessions]);
+  const calendarCells = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const cellDate = new Date(gridStart);
+      cellDate.setDate(gridStart.getDate() + index);
+      const key = toDateKey(cellDate.toISOString());
+      const times = scheduleTimesByDate.get(key) ?? [];
+      return {
+        key,
+        label: cellDate.getDate(),
+        isCurrentMonth: sameMonth(cellDate, calendarMonth),
+        hasSchedule: scheduleDateKeys.has(key),
+        isSelected: filterDate === key,
+        isToday: toDateKey(new Date().toISOString()) === key,
+        tooltip:
+          times.length > 0
+            ? `${key}\n${times.join("\n")}`
+            : key,
+      };
+    });
+  }, [calendarMonth, filterDate, scheduleDateKeys, scheduleTimesByDate]);
 
   // ===== Create Session Modal State =====
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [showModalFilters, setShowModalFilters] = useState(false);
+  const [modalCollegeId, setModalCollegeId] = useState<number>(0);
+  const modalFilteredCourses = useMemo(
+    () =>
+      modalCollegeId
+        ? courses.filter((c) => c.collegeId === modalCollegeId)
+        : courses,
+    [courses, modalCollegeId],
+  );
+  const [modalCourseId, setModalCourseId] = useState<number>(0);
+  const modalFilteredYearLevels = useMemo(
+    () =>
+      yearLevels.filter(
+        (yl) =>
+          yl.academicYearId === selectedAyId &&
+          (modalCollegeId ? yl.collegeId === modalCollegeId : true),
+      ),
+    [yearLevels, selectedAyId, modalCollegeId],
+  );
+  const [modalYearLevelId, setModalYearLevelId] = useState<number>(0);
+  const canPickCourse = modalCollegeId > 0;
+  const canPickYearLevel = canPickCourse && modalCourseId > 0;
+  const canShowMembers = canPickYearLevel;
+  const [studentSearch, setStudentSearch] = useState("");
+  const facilitatorUsers = useMemo(
+    () =>
+      users.filter(
+        (u) =>
+          (u.role === "STAFF" || u.role === "STUDENT") && !Boolean(u.isArchived),
+      ),
+    [users],
+  );
+  const [showFacilitatorPicker, setShowFacilitatorPicker] = useState(false);
+  const [showFacilitatorFilters, setShowFacilitatorFilters] = useState(false);
+  const [facilitatorSearch, setFacilitatorSearch] = useState("");
+  const [facilitatorRoleFilter, setFacilitatorRoleFilter] = useState<
+    "ALL" | "STAFF" | "STUDENT"
+  >("ALL");
+  const [facilitatorCollegeId, setFacilitatorCollegeId] = useState<number>(0);
+  const facilitatorFilteredCourses = useMemo(
+    () =>
+      facilitatorCollegeId
+        ? courses.filter((c) => c.collegeId === facilitatorCollegeId)
+        : courses,
+    [courses, facilitatorCollegeId],
+  );
+  const [facilitatorCourseId, setFacilitatorCourseId] = useState<number>(0);
 
   const filteredStudents = useMemo(() => {
-    return students.filter(
-      (s) => {
-        const sid = userCourseId(s);
-        const matchesCourse = !filterCourseId || sid === 0 || sid === filterCourseId;
-        return (
-          s.collegeId === filterCollegeId &&
-          s.yearLevelId === filterYearLevelId &&
-          matchesCourse
-        );
-      },
-    );
-  }, [students, filterCollegeId, filterYearLevelId, filterCourseId]);
+    const keyword = studentSearch.trim().toLowerCase();
 
-  const [counselorUserId, setCounselorUserId] = useState<number>(
-    currentUser?.id ?? counselors[0]?.id ?? 0,
-  );
+    return students.filter((s) => {
+      const sid = userCourseId(s);
+      const matchesCourse = !modalCourseId || sid === 0 || sid === modalCourseId;
+      const matchesSearch =
+        !keyword ||
+        matchesSearchPrefix(keyword, labelUserName(s.id), s.email ?? "", labelCourse(sid));
+      return (
+        (modalCollegeId ? s.collegeId === modalCollegeId : true) &&
+        (modalYearLevelId ? s.yearLevelId === modalYearLevelId : true) &&
+        matchesCourse &&
+        matchesSearch
+      );
+    });
+  }, [students, modalCollegeId, modalYearLevelId, modalCourseId, studentSearch]);
+
+  const [STAFFUserId, setSTAFFUserId] = useState<number>(STAFFs[0]?.id ?? 0);
   const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
   const [location, setLocation] = useState("");
-  const [topic, setTopic] = useState("");
+  const [facilitatorUserId, setFacilitatorUserId] = useState<number>(0);
   const [notes, setNotes] = useState("");
-  const [attachment, setAttachment] = useState("");
   const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
 
   useEffect(() => {
-    setSelectedStudentIds([]);
-  }, [filterCollegeId, filterCourseId, filterYearLevelId, selectedAyId]);
+    if (!modalCollegeId) {
+      if (modalCourseId !== 0) setModalCourseId(0);
+      if (modalYearLevelId !== 0) setModalYearLevelId(0);
+    }
+  }, [modalCollegeId, modalCourseId, modalYearLevelId]);
 
   useEffect(() => {
-    if (currentUser?.id) {
-      setCounselorUserId(currentUser.id);
-    } else if (!counselorUserId && counselors[0]?.id) {
-      setCounselorUserId(counselors[0].id);
+    if (!modalCourseId) {
+      if (modalYearLevelId !== 0) setModalYearLevelId(0);
     }
-  }, [currentUser?.id, counselorUserId, counselors]);
+  }, [modalCourseId, modalYearLevelId]);
+
+  useEffect(() => {
+    if (modalCourseId && !modalFilteredCourses.some((c) => c.id === modalCourseId)) {
+      setModalCourseId(0);
+    }
+  }, [modalCourseId, modalFilteredCourses]);
+
+  useEffect(() => {
+    if (
+      facilitatorCourseId &&
+      !facilitatorFilteredCourses.some((c) => c.id === facilitatorCourseId)
+    ) {
+      setFacilitatorCourseId(0);
+    }
+  }, [facilitatorCourseId, facilitatorFilteredCourses]);
+
+  useEffect(() => {
+    if (modalYearLevelId && !modalFilteredYearLevels.some((yl) => yl.id === modalYearLevelId)) {
+      setModalYearLevelId(0);
+    }
+  }, [modalYearLevelId, modalFilteredYearLevels]);
+
+  useEffect(() => {
+    setSelectedStudentIds([]);
+  }, [modalCollegeId, modalCourseId, modalYearLevelId, selectedAyId]);
+
+  useEffect(() => {
+    const currentUserIsStaff =
+      currentUser?.role === "STAFF" && Number(currentUser?.id ?? 0) > 0;
+    const fallbackStaffId = STAFFs[0]?.id ?? 0;
+
+    if (currentUserIsStaff) {
+      setSTAFFUserId(Number(currentUser?.id ?? 0));
+      return;
+    }
+
+    const hasSelectedStaff = STAFFs.some((entry) => entry.id === STAFFUserId);
+    if (!hasSelectedStaff && fallbackStaffId) {
+      setSTAFFUserId(fallbackStaffId);
+    }
+  }, [currentUser?.id, currentUser?.role, STAFFUserId, STAFFs]);
+
+  useEffect(() => {
+    if (!facilitatorUserId && STAFFUserId > 0) {
+      setFacilitatorUserId(STAFFUserId);
+    }
+  }, [facilitatorUserId, STAFFUserId]);
+
+  useEffect(() => {
+    if (
+      facilitatorUserId > 0 &&
+      !facilitatorUsers.some((entry) => entry.id === facilitatorUserId)
+    ) {
+      setFacilitatorUserId(0);
+    }
+  }, [facilitatorUserId, facilitatorUsers]);
 
   // ===== Refs for auto-scroll / focus =====
-  const counselorRef = useRef<HTMLInputElement | null>(null);
+  const STAFFRef = useRef<HTMLSelectElement | null>(null);
   const dateRef = useRef<HTMLInputElement | null>(null);
+  const timeRef = useRef<HTMLInputElement | null>(null);
+  const dateCalendarWrapRef = useRef<HTMLDivElement | null>(null);
+  const facilitatorRef = useRef<HTMLInputElement | null>(null);
+  const facilitatorControlRef = useRef<HTMLDivElement | null>(null);
   const locationRef = useRef<HTMLInputElement | null>(null);
-  const topicRef = useRef<HTMLInputElement | null>(null);
   const membersRef = useRef<HTMLDivElement | null>(null);
-  const attachmentFileRef = useRef<HTMLInputElement | null>(null);
 
-  const counselorDisplay = useMemo(() => {
-    if (currentUser) {
-      return `${currentUser.fname} ${currentUser.lname} (${currentUser.email})`;
+  useEffect(() => {
+    if (!showFacilitatorPicker) return;
+    const handle = window.setTimeout(() => facilitatorRef.current?.focus(), 0);
+    return () => window.clearTimeout(handle);
+  }, [showFacilitatorPicker]);
+
+  useEffect(() => {
+    if (!showFacilitatorPicker && !showFacilitatorFilters) return;
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        facilitatorControlRef.current &&
+        target instanceof Node &&
+        facilitatorControlRef.current.contains(target)
+      ) {
+        return;
+      }
+      setShowFacilitatorPicker(false);
+      setShowFacilitatorFilters(false);
+    };
+
+    window.addEventListener("mousedown", handleMouseDown);
+    return () => window.removeEventListener("mousedown", handleMouseDown);
+  }, [showFacilitatorFilters, showFacilitatorPicker]);
+
+  const selectedFacilitator = useMemo(
+    () => facilitatorUsers.find((entry) => entry.id === facilitatorUserId) ?? null,
+    [facilitatorUserId, facilitatorUsers],
+  );
+  const selectedFacilitatorLabel = selectedFacilitator
+    ? labelUserName(selectedFacilitator.id)
+    : "";
+  const facilitatorKeyword = facilitatorSearch.trim().toLowerCase();
+  const appliedFacilitatorKeyword =
+    showFacilitatorPicker &&
+    facilitatorKeyword !== selectedFacilitatorLabel.trim().toLowerCase()
+      ? facilitatorKeyword
+      : "";
+
+  useEffect(() => {
+    if (!showFacilitatorPicker) {
+      setFacilitatorSearch(selectedFacilitatorLabel);
     }
-    if (counselorUserId) return labelUser(counselorUserId);
-    return "No counselor selected";
-  }, [currentUser, counselorUserId, users]);
+  }, [selectedFacilitatorLabel, showFacilitatorPicker]);
+
+  const facilitatorOptions = useMemo(() => {
+    return facilitatorUsers
+      .filter((entry) =>
+        facilitatorRoleFilter === "ALL" ? true : entry.role === facilitatorRoleFilter,
+      )
+      .filter((entry) =>
+        facilitatorCollegeId ? Number(entry.collegeId ?? 0) === facilitatorCollegeId : true,
+      )
+      .filter((entry) =>
+        facilitatorCourseId ? userCourseId(entry) === facilitatorCourseId : true,
+      )
+      .filter((entry) => {
+        return matchesSearchPrefix(
+          appliedFacilitatorKeyword,
+          labelUserName(entry.id),
+        );
+      })
+      .sort((a, b) => {
+        const nameA = labelUserName(a.id).toLowerCase();
+        const nameB = labelUserName(b.id).toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+  }, [
+    facilitatorCollegeId,
+    facilitatorCourseId,
+    facilitatorRoleFilter,
+    appliedFacilitatorKeyword,
+    facilitatorUsers,
+  ]);
 
   const toggleStudent = (id: number) => {
     setSelectedStudentIds((prev) =>
@@ -343,13 +877,41 @@ export default function GroupSessions() {
     );
   };
 
-  // ✅ Live validation
+  const filteredStudentIds = useMemo(
+    () => filteredStudents.map((s) => s.id),
+    [filteredStudents],
+  );
+  const hasStudentSearch = studentSearch.trim().length > 0;
+  const shouldShowStudentResults = canShowMembers || hasStudentSearch;
+  const allFilteredSelected =
+    filteredStudentIds.length > 0 &&
+    filteredStudentIds.every((id) => selectedStudentIds.includes(id));
+
+  const handleSelectAllStudents = () => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      for (const id of filteredStudentIds) next.add(id);
+      return Array.from(next);
+    });
+  };
+
+  const handleClearFilteredStudents = () => {
+    setSelectedStudentIds((prev) =>
+      prev.filter((id) => !filteredStudentIds.includes(id)),
+    );
+  };
+
+  // âœ… Live validation
   const missing: string[] = [];
-  if (!counselorUserId) missing.push("Counselor");
+  if (!STAFFUserId) missing.push("STAFF");
+  if (!modalCollegeId) missing.push("College");
+  if (!modalCourseId) missing.push("Course");
+  if (!modalYearLevelId) missing.push("Year Level");
+  if (!facilitatorUserId) missing.push("Facilitator");
   if (!date) missing.push("Date");
+  if (!time) missing.push("Time");
   if (!location.trim()) missing.push("Location");
-  if (!topic.trim()) missing.push("Topic");
-  if (selectedStudentIds.length === 0) missing.push("At least 1 Member");
+  if (selectedStudentIds.length === 0) missing.push("At least 1 Student");
   const canCreate = missing.length === 0;
 
   const focusAndScroll = (el: HTMLElement | null) => {
@@ -359,31 +921,42 @@ export default function GroupSessions() {
   };
 
   const scrollToFirstMissing = () => {
-    if (!counselorUserId) return focusAndScroll(counselorRef.current);
+    if (!STAFFUserId) return focusAndScroll(STAFFRef.current);
+    if (!modalCollegeId || !modalCourseId || !modalYearLevelId)
+      return focusAndScroll(membersRef.current);
+    if (!facilitatorUserId) return focusAndScroll(facilitatorRef.current);
     if (!date) return focusAndScroll(dateRef.current);
+    if (!time) return focusAndScroll(timeRef.current);
     if (!location.trim()) return focusAndScroll(locationRef.current);
-    if (!topic.trim()) return focusAndScroll(topicRef.current);
     if (selectedStudentIds.length === 0)
       return focusAndScroll(membersRef.current);
   };
 
   const handleCreate = async () => {
     // safety
-    if (!canCreate) return;
+    if (!canCreate || creating) return;
 
     try {
+      setCreating(true);
+      const minLoadingDelay = new Promise<void>((resolve) =>
+        window.setTimeout(resolve, 1200),
+      );
       const res = await createGroupSession({
         academicYearId: selectedAyId,
-        collegeId: filterCollegeId,
-        yearLevelId: filterYearLevelId,
-        counselorUserId,
+        collegeId: modalCollegeId,
+        courseId: modalCourseId,
+        yearLevelId: modalYearLevelId,
+        STAFFUserId,
         date,
+        time,
         location: location.trim(),
-        topic: topic.trim(),
+        topic: labelYL(modalYearLevelId),
+        facilitatorUserId,
+        facilitator: selectedFacilitatorLabel,
         notes: notes.trim() ? notes.trim() : undefined,
-        attachment: attachment.trim() ? attachment.trim() : undefined,
         studentIds: selectedStudentIds,
       });
+      await minLoadingDelay;
 
       const nextSessions = res.sessions ?? [];
       const nextMembers = res.members ?? [];
@@ -394,35 +967,38 @@ export default function GroupSessions() {
 
       // reset
       setDate("");
+      setTime("");
       setLocation("");
-      setTopic("");
+      setFacilitatorUserId(STAFFUserId > 0 ? STAFFUserId : 0);
+      setFacilitatorSearch("");
+      setFacilitatorRoleFilter("ALL");
+      setFacilitatorCollegeId(0);
+      setFacilitatorCourseId(0);
       setNotes("");
-      setAttachment("");
+      setStudentSearch("");
       setSelectedStudentIds([]);
       setOpen(false);
+      setShowModalFilters(false);
+      setShowFacilitatorPicker(false);
+      setShowFacilitatorFilters(false);
     } catch (e: any) {
-      alert(e?.message || "Failed to create group session.");
+      alert(e?.message || "Failed to create Student Circle.");
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleAttachFileClick = () => {
-    attachmentFileRef.current?.click();
-  };
-
-  const handleAttachmentFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setAttachment(`file:${file.name}`);
-  };
-
-  const handleAttachLinkClick = () => {
-    const raw = window.prompt("Paste attachment link");
-    if (raw === null) return;
-    const link = raw.trim();
-    if (!link) return;
-    setAttachment(link);
+  const closeCreateModal = () => {
+    if (creating) return;
+    setOpen(false);
+    setShowModalFilters(false);
+    setShowFacilitatorPicker(false);
+    setShowFacilitatorFilters(false);
+    setFacilitatorSearch("");
+    setFacilitatorRoleFilter("ALL");
+    setFacilitatorCollegeId(0);
+    setFacilitatorCourseId(0);
+    setStudentSearch("");
   };
 
   // ===== Call Slip Print =====
@@ -464,14 +1040,9 @@ export default function GroupSessions() {
       .map((m) => users.find((u) => u.id === m.studentUserId))
       .filter(Boolean) as User[];
 
-    const counselor = users.find((u) => u.id === session.counselorUserId);
-    const counselorName = counselor
-      ? `${counselor.fname} ${counselor.mname ? counselor.mname + " " : ""}${counselor.lname}`
-      : "Guidance Counselor";
-
     const collegeName = labelCollege(session.collegeId);
     const ylName = labelYL(session.yearLevelId);
-    const courseYear = `${collegeName} • ${ylName}`;
+    const courseYear = `${collegeName} / ${ylName}`;
 
     const chunkSize = 10;
     const chunks: User[][] = [];
@@ -481,8 +1052,9 @@ export default function GroupSessions() {
     if (chunks.length === 0) chunks.push([]);
 
     const dateIssued = fmtLongDate(new Date().toISOString().slice(0, 10));
-    const scheduleText = `${fmtLongDate(session.date)} (see counselor)`;
-    const reasonText = session.topic;
+    const scheduleTimeText = formatSessionTimeLabel(session.time);
+    const scheduleText = `${fmtLongDate(session.date)} - ${scheduleTimeText}`;
+    const reasonText = "student circle";
 
     const pages = chunks
       .map((chunk) => {
@@ -507,7 +1079,7 @@ export default function GroupSessions() {
                   <div class="office">Guidance and Counseling Services Center</div>
                 </div>
 
-                <div class="title">CALL SLIP – GUIDANCE</div>
+                <div class="title">CALL SLIP - GUIDANCE</div>
 
                 <div class="meta">
                   <div>To: <span class="line"></span></div>
@@ -536,14 +1108,11 @@ export default function GroupSessions() {
                 <div class="conf">CONFIDENTIAL</div>
 
                 <div class="sig">
-                  <div class="name">
-                    ${escapeHtml(counselorName)}
-                    <div style="font-size:11px; opacity:.8">Guidance Counselor</div>
-                  </div>
+                  <div class="name">Guidance Counselor</div>
                 </div>
 
                 <div class="foot">
-                  <div>GCMS • Call Slip</div>
+                  <div>GCMS - Call Slip</div>
                   <div>Page 1 of 2</div>
                 </div>
               </div>
@@ -554,7 +1123,7 @@ export default function GroupSessions() {
                   <div class="office">Guidance and Counseling Services Center</div>
                 </div>
 
-                <div class="title">CALL SLIP – GUIDANCE</div>
+                <div class="title">CALL SLIP - GUIDANCE</div>
                 <div class="subtitle">APPEARANCE</div>
 
                 <div class="meta">
@@ -585,7 +1154,7 @@ export default function GroupSessions() {
                 </div>
 
                 <div class="foot">
-                  <div>GCMS • Appearance</div>
+                  <div>GCMS - Appearance</div>
                   <div>Page 2 of 2</div>
                 </div>
               </div>
@@ -664,6 +1233,93 @@ export default function GroupSessions() {
     background: "white",
     color: "var(--text)",
   };
+  const facilitatorControlRow: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: 10,
+    alignItems: "start",
+  };
+  const facilitatorTriggerWrap: React.CSSProperties = {
+    position: "relative",
+  };
+  const facilitatorTriggerButton: React.CSSProperties = {
+    ...inputStyle,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    cursor: "text",
+    fontWeight: 700,
+  };
+  const facilitatorInlineInput: React.CSSProperties = {
+    border: "none",
+    outline: "none",
+    width: "100%",
+    minWidth: 0,
+    background: "transparent",
+    color: "var(--text)",
+    fontWeight: 700,
+    fontSize: 16,
+  };
+  const facilitatorToggleButton: React.CSSProperties = {
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    cursor: "pointer",
+    flexShrink: 0,
+  };
+  const facilitatorSearchRow: React.CSSProperties = {
+    ...inputStyle,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "0 12px",
+  };
+  const facilitatorSearchInput: React.CSSProperties = {
+    border: "none",
+    outline: "none",
+    width: "100%",
+    minWidth: 0,
+    background: "transparent",
+    color: "var(--text)",
+    fontSize: 14,
+  };
+  const facilitatorDropdownPanel: React.CSSProperties = {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: "calc(100% + 10px)",
+    borderRadius: 16,
+    border: "1px solid var(--border)",
+    background: "white",
+    boxShadow: "0 18px 40px rgba(15,23,42,0.14)",
+    padding: 12,
+    zIndex: 30,
+    display: "grid",
+    gap: 10,
+  };
+  const facilitatorOptionsList: React.CSSProperties = {
+    maxHeight: 240,
+    overflowY: "auto",
+    display: "grid",
+    gap: 8,
+  };
+  const facilitatorOptionButton: React.CSSProperties = {
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: "10px 12px",
+    background: "white",
+    textAlign: "left",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    cursor: "pointer",
+  };
 
   const textareaStyle: React.CSSProperties = {
     borderRadius: 10,
@@ -698,6 +1354,80 @@ export default function GroupSessions() {
     fontWeight: 800,
     cursor: "pointer",
   };
+  const buttonContent: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  };
+
+  const headerIconButton: React.CSSProperties = {
+    height: 48,
+    width: 48,
+    borderRadius: 14,
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "var(--primary)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+  };
+
+  const compactFilterPanel: React.CSSProperties = {
+    position: "absolute",
+    right: 0,
+    top: "calc(100% + 10px)",
+    width: "min(340px, calc(100vw - 120px))",
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid var(--border)",
+    background: "white",
+    boxShadow: "0 18px 40px rgba(15,23,42,0.12)",
+    display: "grid",
+    gap: 10,
+    zIndex: 20,
+  };
+
+  const compactField: React.CSSProperties = {
+    display: "grid",
+    gap: 5,
+  };
+
+  const compactLabel: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 800,
+    opacity: 0.78,
+  };
+
+  const compactClearButton: React.CSSProperties = {
+    height: 34,
+    padding: "0 12px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "#000000",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    fontWeight: 800,
+    fontSize: 12.5,
+    cursor: "pointer",
+  };
+  const modalFilterButton: React.CSSProperties = {
+    ...headerIconButton,
+    height: 40,
+    width: 40,
+    borderRadius: 12,
+  };
+  const modalCompactFilterPanel: React.CSSProperties = {
+    ...compactFilterPanel,
+    right: "calc(100% + 10px)",
+    top: "auto",
+    bottom: 0,
+    width: "min(300px, calc(100vw - 220px))",
+  };
 
   const iconButton: React.CSSProperties = {
     height: 40,
@@ -716,107 +1446,445 @@ export default function GroupSessions() {
     fontWeight: 800,
     opacity: 0.85,
   };
+  const modalBody: React.CSSProperties = {
+    position: "relative",
+  };
+  const createOverlay: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+    pointerEvents: "none",
+  };
+  const createCard: React.CSSProperties = {
+    minWidth: 320,
+    maxWidth: 400,
+    padding: "34px 28px",
+    borderRadius: 28,
+    background: "rgba(255,255,255,0.95)",
+    border: "1px solid rgba(95,109,122,0.18)",
+    boxShadow: "0 28px 64px rgba(15,23,42,0.16)",
+    display: "grid",
+    justifyItems: "center",
+    gap: 16,
+    textAlign: "center",
+  };
+  const createIconWrap: React.CSSProperties = {
+    position: "relative",
+    width: 168,
+    height: 168,
+    display: "grid",
+    placeItems: "center",
+  };
+  const createSpinnerRing: React.CSSProperties = {
+    position: "absolute",
+    inset: 0,
+    borderRadius: "50%",
+    background:
+      "conic-gradient(from 0deg, rgba(9,14,25,0.96) 0deg, rgba(9,14,25,0.96) 90deg, rgba(251,191,36,1) 90deg, rgba(245,158,11,1) 250deg, rgba(9,14,25,0.22) 320deg, rgba(9,14,25,0.08) 360deg)",
+    animation: "gcms-spin 0.95s linear infinite",
+    boxShadow: "0 14px 30px rgba(245,158,11,0.22)",
+  };
+  const createSpinnerHole: React.CSSProperties = {
+    position: "absolute",
+    inset: 16,
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.98)",
+  };
+  const createIconCore: React.CSSProperties = {
+    position: "absolute",
+    inset: 34,
+    borderRadius: "50%",
+    background:
+      "linear-gradient(135deg, rgba(251,191,36,1) 0%, rgba(245,158,11,1) 100%)",
+    border: "1px solid rgba(251,191,36,0.35)",
+    color: "rgba(9,14,25,1)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "0 18px 32px rgba(245,158,11,0.22)",
+  };
+  const createTitle: React.CSSProperties = {
+    fontSize: 24,
+    fontWeight: 900,
+    color: "rgba(9,14,25,1)",
+    lineHeight: 1.15,
+  };
+  const createSubtitle: React.CSSProperties = {
+    fontSize: 14,
+    color: "#526371",
+    lineHeight: 1.5,
+    maxWidth: 290,
+  };
 
   const th: React.CSSProperties = {
     textAlign: "left",
     padding: "10px 8px",
     opacity: 0.8,
+    fontSize: 13,
   };
   const td: React.CSSProperties = {
-    padding: "10px 8px",
+    padding: "8px 8px",
     borderTop: "1px solid var(--border)",
+    fontSize: 13,
+    lineHeight: 1.35,
   };
+
+  useEffect(() => {
+    if (!showDateCalendar) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!dateCalendarWrapRef.current) return;
+      if (dateCalendarWrapRef.current.contains(event.target as Node)) return;
+      setShowDateCalendar(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [showDateCalendar]);
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      {/* Header + Filters */}
+      {/* Header */}
       <div
         style={{
           display: "flex",
           gap: 12,
-          alignItems: "flex-end",
+          alignItems: "center",
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ fontWeight: 800, marginRight: "auto" }}>Group Sessions</h2>
+        <h2 style={{ fontWeight: 800, marginRight: "auto" }}>Student Circle</h2>
 
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={label}>College</div>
-          <DropdownSelect
-            value={filterCollegeId}
-            onChange={(e) => setFilterCollegeId(Number(e.target.value))}
-          >
-            <option value={0}>All colleges</option>
-            {colleges.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </DropdownSelect>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={label}>Course</div>
-          <DropdownSelect
-            value={filterCourseId}
-            onChange={(e) => setFilterCourseId(Number(e.target.value))}
-          >
-            <option value={0}>
-              {filteredCourses.length ? "All courses" : "No courses found"}
-            </option>
-            {filteredCourses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </DropdownSelect>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <div style={label}>Year Level</div>
-          <DropdownSelect
-            value={filterYearLevelId}
-            onChange={(e) => setFilterYearLevelId(Number(e.target.value))}
-          >
-            <option value={0}>All year levels</option>
-            {filteredYearLevels.map((yl) => (
-              <option key={yl.id} value={yl.id}>
-                {yl.name}
-              </option>
-            ))}
-          </DropdownSelect>
-        </div>
-
-        <button onClick={() => setOpen(true)} style={primaryButton}>
-          + Create Session
-        </button>
-        <button
-          onClick={() => setShowHistory((v) => !v)}
-          style={ghostButton}
-          title={showHistory ? "Show active sessions" : "Show session history"}
-          aria-label={showHistory ? "Show active sessions" : "Show session history"}
+        <StudentCircleActionButton
+          onClick={() => {
+            setShowFacilitatorPicker(false);
+            setShowFacilitatorFilters(false);
+            setFacilitatorSearch("");
+            setFacilitatorRoleFilter("ALL");
+            setFacilitatorCollegeId(0);
+            setFacilitatorCourseId(0);
+            setStudentSearch("");
+            setOpen(true);
+          }}
+          active={open}
+          baseStyle={headerIconButton}
+          title="Create Student Circle"
+          ariaLabel="Create Student Circle"
         >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            {showHistory ? <List size={16} /> : <History size={16} />}
-            {showHistory ? "Active Sessions" : "Session History"}
-          </span>
-        </button>
+          <Plus size={22} />
+        </StudentCircleActionButton>
+        <StudentCircleActionButton
+          onClick={() => setShowHistory((v) => !v)}
+          active={showHistory}
+          baseStyle={headerIconButton}
+          title={showHistory ? "Show active Student Circles" : "Show Student Circle history"}
+          ariaLabel={showHistory ? "Show active Student Circles" : "Show Student Circle history"}
+        >
+          {showHistory ? <List size={22} /> : <History size={22} />}
+        </StudentCircleActionButton>
       </div>
 
       {/* List */}
       <div style={card}>
-        <h3 style={{ marginBottom: 10 }}>
-          {showHistory ? "Session History" : "Session List"}
-        </h3>
+        <div
+          style={{
+            marginBottom: 10,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <h3 style={{ marginBottom: 0 }}>Student Circle</h3>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div ref={dateCalendarWrapRef} style={{ position: "relative" }}>
+              <StudentCircleActionButton
+                type="button"
+                onClick={() => setShowDateCalendar((prev) => !prev)}
+                active={Boolean(filterDate || showDateCalendar)}
+                baseStyle={headerIconButton}
+                title="Filter by date"
+                ariaLabel="Filter by date"
+              >
+                <CalendarDays size={22} />
+              </StudentCircleActionButton>
+
+              {showDateCalendar && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    top: "calc(100% + 10px)",
+                    width: 290,
+                    padding: 14,
+                    borderRadius: 16,
+                    border: "1px solid var(--border)",
+                    background: "white",
+                    boxShadow: "0 18px 40px rgba(15,23,42,0.16)",
+                    zIndex: 20,
+                    display: "grid",
+                    gap: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth((prev) => shiftMonth(prev, -1))}
+                      style={{
+                        ...iconButton,
+                        width: 34,
+                        height: 34,
+                      }}
+                      aria-label="Previous month"
+                    >
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>‹</span>
+                    </button>
+                    <div style={{ fontWeight: 900, fontSize: 15 }}>
+                      {calendarMonth.toLocaleDateString(undefined, {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth((prev) => shiftMonth(prev, 1))}
+                      style={{
+                        ...iconButton,
+                        width: 34,
+                        height: 34,
+                      }}
+                      aria-label="Next month"
+                    >
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>›</span>
+                    </button>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, 1fr)",
+                      gap: 6,
+                      textAlign: "center",
+                      color: "#64748b",
+                      fontSize: 11,
+                      fontWeight: 900,
+                    }}
+                  >
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                      <div key={day}>{day}</div>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, 1fr)",
+                      gap: 6,
+                    }}
+                  >
+                    {calendarCells.map((cell) => (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        onClick={() => {
+                          setFilterDate(cell.key);
+                          setCalendarMonth(startOfMonth(new Date(cell.key)));
+                          setShowDateCalendar(false);
+                        }}
+                        title={cell.tooltip}
+                        style={{
+                          minHeight: 40,
+                          borderRadius: 12,
+                          border: cell.isSelected
+                            ? "1px solid #5F6D7A"
+                            : cell.isToday
+                              ? "1px solid rgba(34,197,94,0.35)"
+                              : "1px solid rgba(15,23,42,0.08)",
+                          background: cell.isSelected
+                            ? "#5F6D7A"
+                            : cell.isCurrentMonth
+                              ? "white"
+                              : "rgba(226,232,240,0.38)",
+                          color: cell.isSelected
+                            ? "white"
+                            : cell.isCurrentMonth
+                              ? "#0f172a"
+                              : "#94a3b8",
+                          display: "grid",
+                          placeItems: "center",
+                          cursor: "pointer",
+                          padding: "6px 4px",
+                          fontSize: 12,
+                          fontWeight: 800,
+                        }}
+                        aria-label={`Filter ${cell.key}`}
+                      >
+                        <span>{cell.label}</span>
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 999,
+                            background: cell.hasSchedule ? "#22c55e" : "transparent",
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFilterDate("");
+                        setShowDateCalendar(false);
+                      }}
+                      style={{
+                        border: "none",
+                        background: "transparent",
+                        color: "#2563eb",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      Clear
+                    </button>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        color: "#475569",
+                        fontWeight: 700,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: "#22c55e",
+                        }}
+                      />
+                      Has schedule
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ position: "relative" }}>
+              <StudentCircleActionButton
+                type="button"
+                onClick={() => setShowFilters((v) => !v)}
+                active={showFilters}
+                baseStyle={headerIconButton}
+                title={showFilters ? "Hide filters" : "Show filters"}
+                ariaLabel={showFilters ? "Hide filters" : "Show filters"}
+              >
+                <List size={22} />
+              </StudentCircleActionButton>
+
+              {showFilters && (
+                <div style={compactFilterPanel}>
+                  <div style={compactField}>
+                    <div style={compactLabel}>College</div>
+                    <DropdownSelect
+                      value={filterCollegeId}
+                      onChange={(e) => setFilterCollegeId(Number(e.target.value))}
+                    >
+                      <option value={0}>All colleges</option>
+                      {colleges.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </DropdownSelect>
+                  </div>
+
+                  <div style={compactField}>
+                    <div style={compactLabel}>Course</div>
+                    <DropdownSelect
+                      value={filterCourseId}
+                      onChange={(e) => setFilterCourseId(Number(e.target.value))}
+                    >
+                      <option value={0}>
+                        {filteredCourses.length ? "All courses" : "No courses found"}
+                      </option>
+                      {filteredCourses.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </DropdownSelect>
+                  </div>
+
+                  <div style={compactField}>
+                    <div style={compactLabel}>Year Level</div>
+                    <DropdownSelect
+                      value={filterYearLevelId}
+                      onChange={(e) => setFilterYearLevelId(Number(e.target.value))}
+                    >
+                      <option value={0}>All year levels</option>
+                      {filteredYearLevels.map((yl) => (
+                        <option key={yl.id} value={yl.id}>
+                          {yl.name}
+                        </option>
+                      ))}
+                    </DropdownSelect>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                    <StudentCircleActionButton
+                      type="button"
+                      onClick={() => {
+                        setFilterCollegeId(0);
+                        setFilterCourseId(0);
+                        setFilterYearLevelId(0);
+                        setShowFilters(false);
+                      }}
+                      baseStyle={compactClearButton}
+                      title="Clear filters"
+                      ariaLabel="Clear filters"
+                    >
+                      <X size={14} />
+                      Clear
+                    </StudentCircleActionButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
 
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={th}>Topic</th>
+              <th style={th}>Facilitator</th>
               <th style={th}>Location</th>
               <th style={th}>Date</th>
-              <th style={th}>Counselor</th>
+              <th style={th}>Time</th>
               <th style={th}>Members</th>
+              <th style={th}>Course</th>
               <th style={th}>College / Year</th>
               <th style={th}></th>
             </tr>
@@ -824,51 +1892,52 @@ export default function GroupSessions() {
           <tbody>
             {displaySessions.length === 0 ? (
               <tr>
-                <td style={td} colSpan={7}>
+                <td style={td} colSpan={8}>
                   <span style={{ opacity: 0.8 }}>
                     {showHistory
-                      ? "No past sessions found for this filter."
-                      : "No active sessions found for this filter."}
+                      ? "No past Student Circles found for this filter."
+                      : "No active Student Circles found for this filter."}
                   </span>
                 </td>
               </tr>
             ) : (
               displaySessions.map((s) => (
                 <tr key={s.id}>
-                  <td style={td}>
-                    <div style={{ fontWeight: 900 }}>{s.topic}</div>
-                  </td>
+                  <td style={td}>{s.facilitator?.trim() || "-"}</td>
                   <td style={td}>{s.location || "-"}</td>
                   <td style={td}>{fmtLongDate(s.date)}</td>
-                  <td style={td}>{labelUserName(s.counselorUserId)}</td>
+                  <td style={td}>{formatSessionTimeLabel(s.time)}</td>
                   <td style={td}>
                     <b>{memberCount(s.id)}</b>
                   </td>
+                  <td style={td}>{labelCourse(sessionCourseId(s))}</td>
                   <td style={td}>
-                    <div style={{ fontWeight: 800 }}>
+                    <div style={{ fontWeight: 500, fontSize: 12 }}>
                       {labelCollege(s.collegeId)}
                     </div>
-                    <div style={{ opacity: 0.8, fontSize: 13 }}>
-                      {labelAy(s.academicYearId)} • {labelYL(s.yearLevelId)}
+                    <div style={{ opacity: 0.8, fontSize: 12 }}>
+                      {labelAy(s.academicYearId)} / {labelYL(s.yearLevelId)}
                     </div>
                   </td>
                   <td style={td}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button
-                        style={iconButton}
+                      <StudentCircleActionButton
+                        baseStyle={iconButton}
                         title="Print Call Slip"
                         onClick={() => openCallSlipPrint(s)}
+                        keepBorder
                       >
                         <Printer size={18} />
-                      </button>
-                      <Link
+                      </StudentCircleActionButton>
+                      <StudentCircleActionLink
                         to={`/app/group-sessions/${s.id}${filterQuery}`}
-                        title="View session"
-                        aria-label="View session"
-                        style={{ ...iconButton, textDecoration: "none" }}
+                        title="View Student Circle"
+                        ariaLabel="View Student Circle"
+                        baseStyle={iconButton}
+                        keepBorder
                       >
                         <Eye size={18} />
-                      </Link>
+                      </StudentCircleActionLink>
                     </div>
                   </td>
                 </tr>
@@ -881,11 +1950,37 @@ export default function GroupSessions() {
       {/* Create Modal */}
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
-        title="Create Group Session"
+        onClose={creating ? () => {} : closeCreateModal}
+        title="Create Student Circle"
       >
-        <div style={{ display: "grid", gap: 12 }}>
-          {/* 🔴 Live validation reminder */}
+        <div style={modalBody}>
+          {creating && (
+            <div style={createOverlay}>
+              <div style={createCard}>
+                <div style={createIconWrap}>
+                  <div style={createSpinnerRing} />
+                  <div style={createSpinnerHole} />
+                  <div style={createIconCore}>
+                    <Users size={52} />
+                  </div>
+                </div>
+                <div style={createTitle}>Creating Student Circle...</div>
+                <div style={createSubtitle}>
+                  Please wait while we prepare the student circle.
+                </div>
+              </div>
+            </div>
+          )}
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              opacity: creating ? 0.12 : 1,
+              pointerEvents: creating ? "none" : "auto",
+              transition: "opacity 180ms ease",
+            }}
+          >
+          {/* ðŸ”´ Live validation reminder */}
           {!canCreate && (
             <div
               style={{
@@ -907,30 +2002,241 @@ export default function GroupSessions() {
           )}
 
           <div>
-            <div style={label}>Counselor</div>
-            <input
-              ref={counselorRef}
-              value={counselorDisplay}
-              readOnly
+            <div style={label}>STAFF</div>
+            <DropdownSelect
+              ref={STAFFRef}
+              value={STAFFUserId}
+              onChange={(e) => setSTAFFUserId(Number(e.target.value))}
               style={{
                 ...inputStyle,
-                background: "rgba(15,23,42,0.06)",
-                color: "rgba(15,23,42,0.85)",
-                cursor: "default",
+                background: "white",
+                color: "var(--text)",
               }}
-            />
+            >
+              <option value={0}>Select staff</option>
+              {STAFFs.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {labelUserName(staff.id)}
+                </option>
+              ))}
+            </DropdownSelect>
+          </div>
+
+          <div>
+            <div style={label}>Facilitator</div>
+            <div ref={facilitatorControlRef} style={facilitatorControlRow}>
+              <div style={facilitatorTriggerWrap}>
+                <div
+                  style={facilitatorTriggerButton}
+                  onClick={() => {
+                    setShowFacilitatorPicker(true);
+                    facilitatorRef.current?.focus();
+                    facilitatorRef.current?.select();
+                  }}
+                >
+                  <input
+                    ref={facilitatorRef}
+                    value={facilitatorSearch}
+                    onFocus={(e) => {
+                      setShowFacilitatorPicker(true);
+                      e.currentTarget.select();
+                    }}
+                    onChange={(e) => {
+                      setFacilitatorSearch(e.target.value);
+                      setShowFacilitatorPicker(true);
+                    }}
+                    placeholder="Search facilitator"
+                    style={facilitatorInlineInput}
+                    title="Search facilitator"
+                  />
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setShowFacilitatorPicker((prev) => !prev);
+                      if (!showFacilitatorPicker) {
+                        facilitatorRef.current?.focus();
+                        facilitatorRef.current?.select();
+                      }
+                    }}
+                    aria-label={
+                      showFacilitatorPicker
+                        ? "Hide facilitator options"
+                        : "Show facilitator options"
+                    }
+                    aria-expanded={showFacilitatorPicker}
+                    style={facilitatorToggleButton}
+                  >
+                    <ChevronDown size={16} />
+                  </button>
+                </div>
+
+                {showFacilitatorPicker && (
+                  <div style={facilitatorDropdownPanel}>
+                    <div style={facilitatorOptionsList}>
+                      {facilitatorOptions.length === 0 ? (
+                        <div
+                          style={{
+                            border: "1px solid var(--border)",
+                            borderRadius: 12,
+                            padding: "12px 14px",
+                            fontSize: 13,
+                            opacity: 0.76,
+                          }}
+                        >
+                          No matching facilitator found.
+                        </div>
+                      ) : (
+                        facilitatorOptions.map((entry) => {
+                          const isSelected = facilitatorUserId === entry.id;
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              onClick={() => {
+                                setFacilitatorUserId(entry.id);
+                                setShowFacilitatorPicker(false);
+                              }}
+                              style={{
+                                ...facilitatorOptionButton,
+                                border: isSelected
+                                  ? "1px solid rgba(31,78,95,0.38)"
+                                  : facilitatorOptionButton.border,
+                                background: isSelected
+                                  ? "rgba(31,78,95,0.06)"
+                                  : "white",
+                              }}
+                            >
+                              <span style={{ fontWeight: 900 }}>
+                                {labelUserName(entry.id)}
+                              </span>
+                              {isSelected ? <Check size={16} /> : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ position: "relative" }}>
+                <StudentCircleActionButton
+                  onClick={() => setShowFacilitatorFilters((value) => !value)}
+                  active={showFacilitatorFilters}
+                  title={
+                    showFacilitatorFilters
+                      ? "Hide facilitator filters"
+                      : "Show facilitator filters"
+                  }
+                  ariaLabel={
+                    showFacilitatorFilters
+                      ? "Hide facilitator filters"
+                      : "Show facilitator filters"
+                  }
+                  baseStyle={modalFilterButton}
+                >
+                  <SlidersHorizontal size={18} />
+                </StudentCircleActionButton>
+
+                {showFacilitatorFilters && (
+                  <div style={modalCompactFilterPanel}>
+                    <div style={compactField}>
+                      <div style={compactLabel}>Type</div>
+                      <DropdownSelect
+                        value={facilitatorRoleFilter}
+                        onChange={(e) =>
+                          setFacilitatorRoleFilter(
+                            e.target.value as "ALL" | "STAFF" | "STUDENT",
+                          )
+                        }
+                      >
+                        <option value="ALL">All users</option>
+                        <option value="STAFF">Staff</option>
+                        <option value="STUDENT">Student</option>
+                      </DropdownSelect>
+                    </div>
+
+                    <div style={compactField}>
+                      <div style={compactLabel}>College</div>
+                      <DropdownSelect
+                        value={facilitatorCollegeId}
+                        onChange={(e) =>
+                          setFacilitatorCollegeId(Number(e.target.value))
+                        }
+                      >
+                        <option value={0}>All colleges</option>
+                        {colleges.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </DropdownSelect>
+                    </div>
+
+                    <div style={compactField}>
+                      <div style={compactLabel}>Course</div>
+                      <DropdownSelect
+                        value={facilitatorCourseId}
+                        onChange={(e) =>
+                          setFacilitatorCourseId(Number(e.target.value))
+                        }
+                        disabled={!facilitatorCollegeId}
+                      >
+                        <option value={0}>
+                          {facilitatorCollegeId ? "All courses" : "Select college first"}
+                        </option>
+                        {facilitatorFilteredCourses.map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.name}
+                          </option>
+                        ))}
+                      </DropdownSelect>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <StudentCircleActionButton
+                        onClick={() => {
+                          setFacilitatorRoleFilter("ALL");
+                          setFacilitatorCollegeId(0);
+                          setFacilitatorCourseId(0);
+                          setShowFacilitatorFilters(false);
+                        }}
+                        title="Clear facilitator filters"
+                        ariaLabel="Clear facilitator filters"
+                        baseStyle={compactClearButton}
+                      >
+                        <X size={14} />
+                        Clear
+                      </StudentCircleActionButton>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div
-            style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}
+            style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr 1fr" }}
           >
             <div>
               <div style={label}>Date</div>
-              <input
+              <FormattedDateInput
                 ref={dateRef}
-                type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                displayStyle={inputStyle}
+              />
+            </div>
+
+            <div>
+              <div style={label}>Time</div>
+              <input
+                ref={timeRef}
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
                 style={inputStyle}
               />
             </div>
@@ -948,62 +2254,6 @@ export default function GroupSessions() {
           </div>
 
           <div>
-            <div style={label}>Topic</div>
-            <input
-              ref={topicRef}
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g., Stress Management"
-              style={inputStyle}
-            />
-          </div>
-
-          <div>
-            <div style={label}>Attachment</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <button
-                type="button"
-                onClick={handleAttachFileClick}
-                style={{
-                  ...ghostButton,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  height: 36,
-                }}
-              >
-                <Paperclip size={14} />
-                Attach File
-              </button>
-              <button
-                type="button"
-                onClick={handleAttachLinkClick}
-                style={{
-                  ...ghostButton,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  height: 36,
-                }}
-              >
-                <Link2 size={14} />
-                Attach Link
-              </button>
-            </div>
-            <input
-              ref={attachmentFileRef}
-              type="file"
-              onChange={handleAttachmentFileChange}
-              style={{ display: "none" }}
-            />
-            {attachment ? (
-              <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Selected: {attachment}
-              </div>
-            ) : null}
-          </div>
-
-          <div>
             <div style={label}>Notes (optional)</div>
             <textarea
               value={notes}
@@ -1013,71 +2263,270 @@ export default function GroupSessions() {
           </div>
 
           <div>
-            <div style={label}>
-              Members (Students filtered by College + Course + Year Level)
-            </div>
-
-            <div
-              ref={membersRef}
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 12,
-                padding: 10,
-                maxHeight: 220,
-                overflow: "auto",
-                background: "rgba(255,255,255,0.6)",
-              }}
-            >
-              {filteredStudents.length === 0 ? (
-                <div style={{ opacity: 0.8, fontSize: 13 }}>
-                  No students found in this filter. Add students in User
-                  Management.
-                </div>
-              ) : (
-                filteredStudents.map((s) => {
-                  const checked = selectedStudentIds.includes(s.id);
-                  const full = `${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`;
-                  return (
-                    <label
-                      key={s.id}
-                      style={{
-                        display: "flex",
-                        gap: 10,
-                        alignItems: "center",
-                        padding: "6px 4px",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleStudent(s.id)}
-                      />
-                      <span style={{ fontWeight: 800 }}>{full}</span>
-                      <span style={{ opacity: 0.8 }}>({s.email})</span>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-
             <div
               style={{
-                marginTop: 10,
-                padding: "8px 10px",
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                background: "rgba(255,255,255,0.7)",
-                fontSize: 13,
-                fontWeight: 900,
-                display: "inline-flex",
-                gap: 8,
+                display: "grid",
+                gridTemplateColumns: "auto minmax(0, 1fr)",
                 alignItems: "center",
-                width: "fit-content",
+                justifyContent: "space-between",
+                gap: 12,
+                marginBottom: 8,
               }}
             >
-              ✅ Selected Members:{" "}
-              <span style={{ fontSize: 14 }}>{selectedStudentIds.length}</span>
+              <div style={label}>Student</div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "minmax(0, 320px) auto",
+                  alignItems: "center",
+                  gap: 10,
+                  marginLeft: "auto",
+                  width: "100%",
+                  maxWidth: 380,
+                  justifySelf: "end",
+                }}
+              >
+                <div
+                  style={{
+                    ...facilitatorSearchRow,
+                    width: "100%",
+                  }}
+                >
+                  <Search size={16} style={{ opacity: 0.66 }} />
+                  <input
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    placeholder="Search student name, email, or course"
+                    style={facilitatorSearchInput}
+                  />
+                </div>
+
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <StudentCircleActionButton
+                    onClick={() => setShowModalFilters((value) => !value)}
+                    active={showModalFilters}
+                    title={showModalFilters ? "Hide student filters" : "Show student filters"}
+                    ariaLabel={showModalFilters ? "Hide student filters" : "Show student filters"}
+                    baseStyle={modalFilterButton}
+                  >
+                    <List size={18} />
+                  </StudentCircleActionButton>
+
+                  {showModalFilters && (
+                    <div style={modalCompactFilterPanel}>
+                      <div style={compactField}>
+                        <div style={compactLabel}>College</div>
+                        <DropdownSelect
+                          value={modalCollegeId}
+                          onChange={(e) => setModalCollegeId(Number(e.target.value))}
+                        >
+                          <option value={0}>Select college</option>
+                          {colleges.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </DropdownSelect>
+                      </div>
+
+                      <div style={compactField}>
+                        <div style={compactLabel}>Course</div>
+                        <DropdownSelect
+                          value={modalCourseId}
+                          onChange={(e) => setModalCourseId(Number(e.target.value))}
+                          disabled={!canPickCourse}
+                        >
+                          <option value={0}>
+                            {!canPickCourse
+                              ? "Select college first"
+                              : modalFilteredCourses.length
+                                ? "Select course"
+                                : "No courses found"}
+                          </option>
+                          {modalFilteredCourses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </DropdownSelect>
+                      </div>
+
+                      <div style={compactField}>
+                        <div style={compactLabel}>Year Level</div>
+                        <DropdownSelect
+                          value={modalYearLevelId}
+                          onChange={(e) => setModalYearLevelId(Number(e.target.value))}
+                          disabled={!canPickYearLevel}
+                        >
+                          <option value={0}>
+                            {canPickYearLevel ? "Select year level" : "Select course first"}
+                          </option>
+                          {YEAR_LEVEL_OPTIONS.map((name) => {
+                            const item = modalFilteredYearLevels.find((yl) => yl.name === name);
+                            if (!item) return null;
+                            return (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            );
+                          })}
+                        </DropdownSelect>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <StudentCircleActionButton
+                          onClick={() => {
+                            setModalCollegeId(0);
+                            setModalCourseId(0);
+                            setModalYearLevelId(0);
+                            setShowModalFilters(false);
+                          }}
+                          title="Clear student filters"
+                          ariaLabel="Clear student filters"
+                          baseStyle={compactClearButton}
+                        >
+                          <X size={14} />
+                          Clear
+                        </StudentCircleActionButton>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {!shouldShowStudentResults ? (
+              <div
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  padding: "10px 12px",
+                  background: "rgba(255,255,255,0.6)",
+                  fontSize: 13,
+                  opacity: 0.8,
+                }}
+              >
+                Select College, Course, and Year Level to load students.
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    marginBottom: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ fontSize: 13, opacity: 0.8 }}>
+                    {hasStudentSearch
+                      ? "Showing student search results."
+                      : "Students filtered by College + Course + Year Level."}
+                    {" "}
+                    Call slips auto-split every 10 students.
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={handleSelectAllStudents}
+                      disabled={filteredStudentIds.length === 0 || allFilteredSelected}
+                      style={{
+                        ...ghostButton,
+                        height: 34,
+                        padding: "0 12px",
+                        opacity:
+                          filteredStudentIds.length === 0 || allFilteredSelected ? 0.6 : 1,
+                      }}
+                      title="Select all filtered students"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearFilteredStudents}
+                      disabled={!filteredStudentIds.some((id) => selectedStudentIds.includes(id))}
+                      style={{
+                        ...ghostButton,
+                        height: 34,
+                        padding: "0 12px",
+                        opacity:
+                          !filteredStudentIds.some((id) => selectedStudentIds.includes(id))
+                            ? 0.6
+                            : 1,
+                      }}
+                      title="Clear filtered students"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  ref={membersRef}
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    padding: "10px 10px 96px",
+                    maxHeight: 220,
+                    overflow: "auto",
+                    background: "rgba(255,255,255,0.6)",
+                    scrollPaddingBottom: 96,
+                  }}
+                >
+                  {filteredStudents.length === 0 ? (
+                    <div style={{ opacity: 0.8, fontSize: 13 }}>
+                      {hasStudentSearch
+                        ? "No students matched your search."
+                        : "No students found in this filter. Add students in User Management."}
+                    </div>
+                  ) : (
+                    filteredStudents.map((s) => {
+                      const checked = selectedStudentIds.includes(s.id);
+                      const full = `${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`;
+                      return (
+                        <label
+                          key={s.id}
+                          style={{
+                            display: "flex",
+                            gap: 10,
+                            alignItems: "center",
+                            padding: "6px 4px",
+                          }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleStudent(s.id)}
+                            />
+                          <span style={{ fontWeight: 800 }}>{full}</span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: "8px 10px",
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    background: "rgba(255,255,255,0.7)",
+                    fontSize: 13,
+                    fontWeight: 900,
+                    display: "inline-flex",
+                    gap: 8,
+                    alignItems: "center",
+                    width: "fit-content",
+                  }}
+                >
+                  Selected Students:{" "}
+                  <span style={{ fontSize: 14 }}>{selectedStudentIds.length}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div
@@ -1088,11 +2537,11 @@ export default function GroupSessions() {
               position: "sticky",
               bottom: 0,
               paddingTop: 12,
-              background:
-                "linear-gradient(180deg, rgba(255,255,255,0) 0%, var(--card) 40%)",
+              background: "transparent",
+              zIndex: 1,
             }}
           >
-            <button onClick={() => setOpen(false)} style={ghostButton}>
+            <button onClick={closeCreateModal} style={ghostButton} disabled={creating}>
               Cancel
             </button>
 
@@ -1106,17 +2555,22 @@ export default function GroupSessions() {
               }}
               style={{
                 ...primaryButton,
-                opacity: canCreate ? 1 : 0.75,
+                opacity: canCreate && !creating ? 1 : 0.75,
               }}
+              disabled={creating}
               title={
                 !canCreate ? `Missing: ${missing.join(", ")}` : "Create session"
               }
             >
-              Create
+              <span style={buttonContent}>
+                <span>{creating ? "Creating..." : "Create"}</span>
+              </span>
             </button>
+          </div>
           </div>
         </div>
       </Modal>
     </div>
   );
 }
+

@@ -22,3 +22,13 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+
+@keyframes gcms-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -27,8 +27,10 @@ const LANDING_PALETTES: Record<PaletteId, LandingPalette> = {
     background:
       "radial-gradient(700px 420px at 85% 12%, rgba(251,191,36,0.25), transparent 55%)," +
       "linear-gradient(135deg, #0a0f1f 0%, #0f1b3d 40%, #1e3a8a 100%)",
-    blob1: "radial-gradient(circle at 40% 40%, rgba(37,99,235,0.35), transparent 65%)",
-    blob2: "radial-gradient(circle at 40% 40%, rgba(251,191,36,0.35), transparent 65%)",
+    blob1:
+      "radial-gradient(circle at 40% 40%, rgba(37,99,235,0.35), transparent 65%)",
+    blob2:
+      "radial-gradient(circle at 40% 40%, rgba(251,191,36,0.35), transparent 65%)",
   },
   2: {
     label: "Palette 2",
@@ -39,8 +41,10 @@ const LANDING_PALETTES: Record<PaletteId, LandingPalette> = {
     background:
       "radial-gradient(700px 420px at 85% 12%, rgba(250,204,21,0.24), transparent 55%)," +
       "linear-gradient(135deg, #081f26 0%, #0f3a45 45%, #115e59 100%)",
-    blob1: "radial-gradient(circle at 40% 40%, rgba(13,148,136,0.35), transparent 65%)",
-    blob2: "radial-gradient(circle at 40% 40%, rgba(250,204,21,0.35), transparent 65%)",
+    blob1:
+      "radial-gradient(circle at 40% 40%, rgba(13,148,136,0.35), transparent 65%)",
+    blob2:
+      "radial-gradient(circle at 40% 40%, rgba(250,204,21,0.35), transparent 65%)",
   },
   3: {
     label: "Palette 3",
@@ -51,8 +55,10 @@ const LANDING_PALETTES: Record<PaletteId, LandingPalette> = {
     background:
       "radial-gradient(700px 420px at 85% 12%, rgba(200,169,81,0.25), transparent 55%)," +
       "linear-gradient(135deg, #170a2d 0%, #2a0f52 42%, #4a1aa6 100%)",
-    blob1: "radial-gradient(circle at 40% 40%, rgba(74,26,166,0.35), transparent 65%)",
-    blob2: "radial-gradient(circle at 40% 40%, rgba(200,169,81,0.35), transparent 65%)",
+    blob1:
+      "radial-gradient(circle at 40% 40%, rgba(74,26,166,0.35), transparent 65%)",
+    blob2:
+      "radial-gradient(circle at 40% 40%, rgba(200,169,81,0.35), transparent 65%)",
   },
 };
 
@@ -60,7 +66,9 @@ function getPaletteId(): PaletteId {
   const valid = (value: number): value is PaletteId =>
     value === 1 || value === 2 || value === 3;
 
-  const queryValue = Number(new URLSearchParams(window.location.search).get("palette"));
+  const queryValue = Number(
+    new URLSearchParams(window.location.search).get("palette"),
+  );
   if (valid(queryValue)) return queryValue;
 
   const storageValue = Number(localStorage.getItem("evondev_palette"));
@@ -347,7 +355,9 @@ export default function Landing() {
           <div style={styles.brandRow}>
             <img src={logo} alt="GCMS Logo" style={styles.logo} />
             <div style={styles.brandText}>
-              <div style={styles.brandTop}>Guidance and Counselling Management System</div>
+              <div style={styles.brandTop}>
+                Guidance and Counselling Management System
+              </div>
               <div style={styles.brandSub}>GCMS Portal</div>
             </div>
           </div>
@@ -365,11 +375,14 @@ export default function Landing() {
             Secure | Role-based | Student-friendly
           </div>
 
-          <h1 style={styles.title}>Guidance and Counselling Management System</h1>
+          <h1 style={styles.title}>
+            Guidance and Counselling Management System
+          </h1>
           <p style={styles.subtitle}>
-            A modern platform for scheduling, tracking, and managing counseling sessions,
-            built for students, counselors, teachers, non teaching staff, and admins. Log in
-            with your email and get redirected automatically based on your role.
+            A modern platform for scheduling, tracking, and managing counseling
+            sessions, built for students, STAFFs, teachers, non teaching
+            staff, and admins. Log in with your username and get redirected
+            automatically based on your role.
           </p>
 
           <div style={styles.ctas}>
@@ -395,8 +408,8 @@ export default function Landing() {
             <div style={styles.feature}>
               <div style={styles.featureTitle}>Role-Based Access</div>
               <p style={styles.featureText}>
-                Students, Counselors, Teachers, Non Teaching Staff, and Admins see exactly
-                what they need.
+                Students, STAFFs, Teachers, Non Teaching Staff, and Admins
+                see exactly what they need.
               </p>
             </div>
             <div style={styles.feature}>
@@ -422,9 +435,9 @@ export default function Landing() {
           <div style={styles.previewCard}>
             <h3 style={styles.previewTitle}>What you can do inside</h3>
             <p style={styles.previewText}>
-              The system adapts to your role after login. Students manage appointments,
-              counselors guide sessions, teachers add referrals, non teaching staff assist
-              referrals, and admins oversee users.
+              The system adapts to your role after login. Students manage
+              appointments, STAFFs guide sessions, teachers add referrals,
+              non teaching staff assist referrals, and admins oversee users.
             </p>
           </div>
 
@@ -442,7 +455,7 @@ export default function Landing() {
             <div style={styles.checkRow}>
               <div style={styles.checkDot} />
               <div>
-                <p style={styles.checkTitle}>Counselors</p>
+                <p style={styles.checkTitle}>STAFFs</p>
                 <p style={styles.checkDesc}>
                   Manage appointments, document sessions, and support students.
                 </p>
@@ -481,7 +494,8 @@ export default function Landing() {
           </div>
 
           <div style={styles.footerNote}>
-            Tip: Make sure accounts exist in <b>User Management</b> before login.
+            Tip: Make sure accounts exist in <b>User Management</b> before
+            login.
           </div>
         </aside>
       </div>

@@ -21,6 +21,19 @@ export const PERSISTENT_STATE_KEYS = [
 ] as const;
 
 const SYNC_KEY_SET = new Set<string>(PERSISTENT_STATE_KEYS);
+const RESET_IF_REMOTE_MISSING_KEYS = new Set<string>([
+  "gcms_mock_users_v1",
+  "gcms_store_users_v1",
+  "gcms_mock_counseling_cases_v2",
+  "gcms_store_counseling_v1",
+  "gcms_mock_group_sessions_v1",
+  "gcms_store_group_sessions_v1",
+  "gcms_mock_group_session_members_v1",
+  "gcms_store_group_session_members_v1",
+  "gcms_mock_referrals_v1",
+  "gcms_store_referrals_v1",
+  "gcms_mock_referral_logs_v1",
+]);
 
 type BootstrapResponse = {
   ok: boolean;
@@ -124,6 +137,10 @@ export async function initPersistentStateSync() {
       }
 
       const localRaw = window.localStorage.getItem(key);
+      if (RESET_IF_REMOTE_MISSING_KEYS.has(key)) {
+        originalRemoveItem.call(window.localStorage, key);
+        continue;
+      }
       if (localRaw !== null) {
         queueStateWrite(key, localRaw);
       }

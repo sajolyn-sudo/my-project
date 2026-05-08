@@ -1,6 +1,8 @@
 import React, { useMemo } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { useGCMS, fullName, type CounselingCase } from "../store/gcmsStore";
+import useStudentPortalSync from "../hooks/useStudentPortalSync";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -44,7 +46,7 @@ const pill: React.CSSProperties = {
 
 function formatDate(d: string) {
   const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return "—";
+  if (Number.isNaN(dt.getTime())) return "-";
   return dt.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
@@ -53,6 +55,7 @@ function formatDate(d: string) {
 }
 
 export default function MyCounselingView() {
+  const { loading } = useStudentPortalSync();
   const { id } = useParams();
   const caseId = Number(id);
 
@@ -67,9 +70,18 @@ export default function MyCounselingView() {
   }, [myUserId, caseId, counseling]);
 
   if (!currentUser) return <Navigate to="/login" replace />;
+  if (loading && !c) {
+    return (
+      <div style={pageStyle}>
+        <div style={containerStyle}>
+          <div style={cardStyle}>Loading your counseling case...</div>
+        </div>
+      </div>
+    );
+  }
   if (!c) return <Navigate to="/app/my-counseling" replace />;
 
-  const counselor = users.find((u) => u.users_id === c.counselor_user_id);
+  const staffUser = users.find((u) => u.users_id === c.counselor_user_id);
 
   return (
     <div style={pageStyle}>
@@ -94,15 +106,23 @@ export default function MyCounselingView() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <Link
               to="/app/my-counseling"
-              style={{ ...pill, textDecoration: "none" }}
+              title="Back"
+              aria-label="Back"
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 999,
+                border: "1px solid rgba(15,23,42,0.16)",
+                background: "white",
+                color: "#0f172a",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textDecoration: "none",
+                boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
+              }}
             >
-              ← Back
-            </Link>
-            <Link
-              to="/app/dashboard"
-              style={{ ...pill, textDecoration: "none" }}
-            >
-              Dashboard
+              <ArrowLeft size={18} />
             </Link>
           </div>
         </div>
@@ -122,31 +142,25 @@ export default function MyCounselingView() {
 
           <div style={divider} />
 
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-          >
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
               <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
                 Date
               </div>
-              <div style={{ fontWeight: 950 }}>
-                {formatDate(c.counseling_date)}
-              </div>
+              <div style={{ fontWeight: 950 }}>{formatDate(c.counseling_date)}</div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
-                Counselor
+                Staff
               </div>
-              <div style={{ fontWeight: 950 }}>
-                {counselor ? fullName(counselor) : "—"}
-              </div>
+              <div style={{ fontWeight: 950 }}>{staffUser ? fullName(staffUser) : "-"}</div>
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
               <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
                 Reason
               </div>
-              <div style={{ fontWeight: 800 }}>{c.reason ?? "—"}</div>
+              <div style={{ fontWeight: 800 }}>{c.reason ?? "-"}</div>
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>
@@ -161,8 +175,7 @@ export default function MyCounselingView() {
         </div>
 
         <div style={{ ...cardStyle, color: "#64748b", fontSize: 13 }}>
-          Next upgrade: we can add “messages”, file attachments, and counselor
-          feedback here once your backend tables exist.
+          Next upgrade: we can add messages, file attachments, and STAFF feedback here once your backend tables exist.
         </div>
       </div>
     </div>

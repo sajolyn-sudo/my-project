@@ -2,7 +2,7 @@ import { postJSON } from "./api";
 
 export type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";
@@ -16,9 +16,13 @@ export type User = {
   role: Role;
   collegeId?: number;
   yearLevelId?: number;
+  courseId?: number | null;
+  courseName?: string | null;
+  section?: string | null;
 };
 
 export type College = { id: number; name: string };
+export type Course = { id: number; name: string; collegeId: number };
 export type AcademicYear = { id: number; name: string; isActive: boolean };
 export type YearLevel = {
   id: number;
@@ -30,13 +34,17 @@ export type YearLevel = {
 export type CounselingCase = {
   id: number;
   studentId: number;
-  counselorUserId?: number;
+  STAFFUserId?: number;
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
   date: string;
+  time?: string | null;
   status: "Pending" | "Ongoing" | "Completed";
+  reason?: string;
   notes?: string;
+  actionTaken?: string;
+  followUpDate?: string;
   createdAt: string;
 };
 
@@ -47,10 +55,18 @@ export type Referral = {
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-  referredDate: string;
+  referredDate?: string | null;
+  referredTime?: string | null;
   reason: string;
   notes?: string;
-  status: "New" | "Reviewed" | "Closed";
+  status:
+    | "Pending"
+    | "Approved"
+    | "Complete"
+    | "New"
+    | "Reviewed"
+    | "Ongoing"
+    | "Closed";
   createdAt: string;
 };
 
@@ -67,13 +83,16 @@ export type GroupSession = {
   id: number;
   academicYearId: number;
   collegeId: number;
+  courseId?: number | null;
   yearLevelId: number;
-  counselorUserId: number;
+  STAFFUserId: number;
   date: string;
+  time?: string | null;
   location: string;
   topic: string;
+  facilitatorUserId?: number | null;
+  facilitator?: string;
   notes?: string;
-  attachment?: string;
   createdAt: string;
 };
 
@@ -90,6 +109,7 @@ export async function fetchEntitiesBootstrap() {
     colleges: College[];
     academicYears: AcademicYear[];
     yearLevels: YearLevel[];
+    courses: Course[];
   }>("/entities_bootstrap.php", {});
 }
 
@@ -108,13 +128,17 @@ export async function getCounselingCase(id: number) {
 
 export async function createCounselingCase(payload: {
   studentId: number;
-  counselorUserId?: number;
+  STAFFUserId?: number;
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
   date: string;
+  time?: string;
   status?: CounselingCase["status"];
+  reason?: string;
   notes?: string;
+  actionTaken?: string;
+  followUpDate?: string;
 }) {
   return postJSON<{ ok: boolean; id: number; cases: CounselingCase[] }>(
     "/counseling_api.php",
@@ -125,7 +149,11 @@ export async function createCounselingCase(payload: {
 export async function updateCounselingCase(payload: {
   id: number;
   status: CounselingCase["status"];
+  time?: string;
+  reason?: string;
   notes?: string;
+  actionTaken?: string;
+  followUpDate?: string;
 }) {
   return postJSON<{ ok: boolean; cases: CounselingCase[] }>("/counseling_api.php", {
     action: "update",
@@ -134,16 +162,28 @@ export async function updateCounselingCase(payload: {
 }
 
 export async function listReferrals() {
-  return postJSON<{ ok: boolean; referrals: Referral[] }>("/referrals_api.php", {
-    action: "list",
+  return postJSON<{ ok: boolean; referrals: Referral[]; reasonOptions?: string[] }>(
+    "/referrals_api.php",
+    {
+      action: "list",
+    },
+  );
+}
+
+export async function listReferralReasonOptions() {
+  return postJSON<{ ok: boolean; reasonOptions: string[] }>("/referrals_api.php", {
+    action: "list_reasons",
   });
 }
 
 export async function getReferral(id: number) {
-  return postJSON<{ ok: boolean; item: Referral }>("/referrals_api.php", {
-    action: "get",
-    id,
-  });
+  return postJSON<{ ok: boolean; item: Referral; reasonOptions?: string[] }>(
+    "/referrals_api.php",
+    {
+      action: "get",
+      id,
+    },
+  );
 }
 
 export async function createReferral(payload: {
@@ -152,12 +192,14 @@ export async function createReferral(payload: {
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-  referredDate: string;
+  referredDate?: string;
+  referredTime?: string;
   reason: string;
   notes?: string;
+  customReasons?: string[];
   status?: Referral["status"];
 }) {
-  return postJSON<{ ok: boolean; id: number; referrals: Referral[] }>(
+  return postJSON<{ ok: boolean; id: number; referrals: Referral[]; reasonOptions?: string[] }>(
     "/referrals_api.php",
     { action: "create", ...payload },
   );
@@ -167,11 +209,16 @@ export async function updateReferral(payload: {
   id: number;
   status: Referral["status"];
   notes?: string;
+  referredDate?: string;
+  referredTime?: string;
 }) {
-  return postJSON<{ ok: boolean; referrals: Referral[] }>("/referrals_api.php", {
-    action: "update",
-    ...payload,
-  });
+  return postJSON<{ ok: boolean; referrals: Referral[]; reasonOptions?: string[] }>(
+    "/referrals_api.php",
+    {
+      action: "update",
+      ...payload,
+    },
+  );
 }
 
 export async function listReferralLogs(referralId: number) {
@@ -220,20 +267,27 @@ export async function getGroupSession(id: number) {
 export async function createGroupSession(payload: {
   academicYearId: number;
   collegeId: number;
+  courseId: number;
   yearLevelId: number;
-  counselorUserId: number;
+  STAFFUserId: number;
   date: string;
+  time: string;
   location: string;
   topic: string;
+  facilitatorUserId: number;
+  facilitator: string;
   notes?: string;
-  attachment?: string;
   studentIds: number[];
 }) {
   return postJSON<{
     ok: boolean;
     sessions: GroupSession[];
     members: GroupSessionMember[];
-  }>("/group_sessions_api.php", { action: "create", ...payload });
+  }>("/group_sessions_api.php", {
+    action: "create",
+    ...payload,
+    counselorUserId: payload.STAFFUserId,
+  });
 }
 
 export async function removeGroupSessionMember(payload: {

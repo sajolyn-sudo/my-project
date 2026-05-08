@@ -93,7 +93,9 @@ export default function TeacherDashboard() {
             <Share2 size={18} />
           </div>
           <div style={{ fontSize: 30, fontWeight: 1000, lineHeight: 1 }}>0</div>
-          <div style={{ opacity: 0.75, fontWeight: 800 }}>Referrals this month</div>
+          <div style={{ opacity: 0.75, fontWeight: 800 }}>
+            Referrals this month
+          </div>
         </div>
 
         <div style={statCard}>
@@ -111,7 +113,9 @@ export default function TeacherDashboard() {
             <UsersRound size={18} />
           </div>
           <div style={{ fontSize: 30, fontWeight: 1000, lineHeight: 1 }}>0</div>
-          <div style={{ opacity: 0.75, fontWeight: 800 }}>Students referred</div>
+          <div style={{ opacity: 0.75, fontWeight: 800 }}>
+            Students referred
+          </div>
         </div>
 
         <div style={statCard}>

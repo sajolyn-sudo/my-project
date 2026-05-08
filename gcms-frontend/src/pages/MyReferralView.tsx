@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useParams, Navigate, useNavigate } from "react-router-dom";
 import { useGCMS, fullName } from "../store/gcmsStore";
+import useStudentPortalSync from "../hooks/useStudentPortalSync";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -70,10 +71,27 @@ function formatDate(d: string) {
   });
 }
 
+function formatTime(value?: string) {
+  if (!value) return "-";
+  const [hourPart, minutePart] = String(value).split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
 function statusColor(status: string) {
-  if (status === "pending") return "#b45309";
-  if (status === "reviewed") return "#1d4ed8";
-  return "#166534";
+  return status === "pending" ? "#b45309" : "#1d4ed8";
+}
+
+function isStudentReferralApproved(status: string) {
+  return status === "approved" || status === "complete" || status === "ongoing";
+}
+
+function studentReferralStatusLabel(status: string) {
+  return status === "pending" ? "Waiting for Approval" : "Approved";
 }
 
 function parseReferralNotes(notes?: string) {
@@ -106,12 +124,13 @@ function parseReferralNotes(notes?: string) {
 }
 
 export default function MyReferralView() {
+  const { loading } = useStudentPortalSync();
   const { id } = useParams();
   const navigate = useNavigate();
   const referralId = Number(id);
   const [backActive, setBackActive] = useState(false);
 
-  const { currentUser, referrals, users } = useGCMS();
+  const { currentUser, referrals } = useGCMS();
   const myUserId = currentUser?.users_id;
 
   const r = useMemo(() => {
@@ -124,14 +143,25 @@ export default function MyReferralView() {
   }, [myUserId, referralId, referrals]);
 
   if (!currentUser) return <Navigate to="/login" replace />;
+  if (loading && !r) {
+    return (
+      <div style={pageStyle}>
+        <div style={containerStyle}>
+          <div style={cardStyle}>Loading your referral...</div>
+        </div>
+      </div>
+    );
+  }
   if (!r) return <Navigate to="/app/my-referrals" replace />;
 
-  const refBy = users.find((u) => u.users_id === r.referred_by_user_id);
   const parsed = parseReferralNotes(r.notes);
   const reasonList = r.reason
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+  const approved = isStudentReferralApproved(r.status);
+  const scheduleDate = approved ? r.referred_date : "";
+  const scheduleTime = approved ? r.referred_time : "";
 
   return (
     <div style={pageStyle}>
@@ -202,7 +232,7 @@ export default function MyReferralView() {
                 letterSpacing: 0.3,
               }}
             >
-              {r.status}
+              {studentReferralStatusLabel(r.status)}
             </span>
           </div>
 
@@ -218,17 +248,19 @@ export default function MyReferralView() {
             <div>
               <div style={labelStyle}>
                 <CalendarDays size={14} />
-                Referred Date
+                Schedule Date
               </div>
-              <div style={{ fontWeight: 950 }}>{formatDate(r.referred_date)}</div>
+              <div style={{ fontWeight: 950 }}>
+                {approved ? formatDate(scheduleDate || "") : "Waiting for approval"}
+              </div>
             </div>
 
             <div>
               <div style={labelStyle}>
-                <UserRound size={14} />
-                Referred By
+                <CalendarDays size={14} />
+                Schedule Time
               </div>
-              <div style={{ fontWeight: 950 }}>{refBy ? fullName(refBy) : "-"}</div>
+              <div style={{ fontWeight: 950 }}>{approved ? formatTime(scheduleTime) : "-"}</div>
             </div>
 
             <div>

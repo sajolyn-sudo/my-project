@@ -10,7 +10,7 @@ type ApiUser = {
   mname: string | null;
   lname: string;
   email: string;
-  role: string; // "ADMIN" | "COUNSELOR" | "TEACHER" | "NON_TEACHING_PERSONNEL" | "STUDENT"
+  role: string; // "ADMIN" | "STAFF" | "TEACHER" | "NON_TEACHING_PERSONNEL" | "STUDENT"
   profilePhoto?: string | null;
   profile_photo?: string | null;
   created_at?: string;
@@ -32,7 +32,7 @@ const AUTH_KEY = "gcms_auth_user_v1";
 function toLegacyUserType(role: Role): UserType {
   if (role === "ADMIN") return "admin";
   if (
-    role === "COUNSELOR" ||
+    role === "STAFF" ||
     role === "TEACHER" ||
     role === "NON_TEACHING_PERSONNEL"
   ) {
@@ -50,9 +50,10 @@ function normalizeRole(raw: string): Role | null {
   if (role === "NON_TEACHING" || role === "NON_TEACHING_STAFF") {
     return "NON_TEACHING_PERSONNEL";
   }
+  if (role === "COUNSELOR") return "STAFF";
   if (
     role === "ADMIN" ||
-    role === "COUNSELOR" ||
+    role === "STAFF" ||
     role === "TEACHER" ||
     role === "NON_TEACHING_PERSONNEL" ||
     role === "STUDENT"
@@ -75,6 +76,33 @@ function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function getApiMessage(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const raw = payload.error ?? payload.message;
+  if (typeof raw !== "string") return null;
+  const msg = raw.trim();
+  return msg || null;
+}
+
+function pickApiUser(payload: unknown): ApiUser | null {
+  if (!isRecord(payload)) return null;
+
+  if (isRecord(payload.user)) return payload.user as ApiUser;
+
+  if (isRecord(payload.data)) {
+    const nested = payload.data;
+    if (isRecord(nested.user)) return nested.user as ApiUser;
+    if ("users_id" in nested || "id" in nested) return nested as ApiUser;
+  }
+
+  if ("users_id" in payload || "id" in payload) return payload as ApiUser;
+  return null;
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
   user: load<AuthUser | null>(AUTH_KEY, null),
 
@@ -92,7 +120,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       return { ok: false, message: "Please enter your password." };
 
     try {
-      const data = await postJSON<{ ok: boolean; user: ApiUser }>(
+      const data = await postJSON<unknown>(
         "/login.php",
         {
           identifier: clean,
@@ -102,18 +130,35 @@ export const useAuthStore = create<AuthState>((set) => ({
         },
       );
 
-      const role = normalizeRole(String(data.user?.role || ""));
-      const id = Number(data.user.users_id ?? data.user.id ?? 0);
+      if (isRecord(data) && data.ok === false) {
+        return {
+          ok: false,
+          message: getApiMessage(data) || "Login failed",
+        };
+      }
+
+      const apiUser = pickApiUser(data);
+      if (!apiUser) {
+        return {
+          ok: false,
+          message:
+            getApiMessage(data) ||
+            "Invalid login response from API. Please try again.",
+        };
+      }
+
+      const role = normalizeRole(String(apiUser.role || ""));
+      const id = Number(apiUser.users_id ?? apiUser.id ?? 0);
 
       if (!id || !role) {
         return { ok: false, message: "Invalid login response from API." };
       }
 
-      const fname = String(data.user.fname || "").trim();
-      const lname = String(data.user.lname || "").trim();
-      const emailOut = String(data.user.email || "").trim();
+      const fname = String(apiUser.fname || "").trim();
+      const lname = String(apiUser.lname || "").trim();
+      const emailOut = String(apiUser.email || "").trim();
       const profilePhoto = String(
-        data.user.profilePhoto ?? data.user.profile_photo ?? "",
+        apiUser.profilePhoto ?? apiUser.profile_photo ?? "",
       ).trim();
 
       const authUser: AuthUser = {

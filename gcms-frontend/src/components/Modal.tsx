@@ -5,11 +5,15 @@ export default function Modal({
   title,
   children,
   onClose,
+  contentStyle,
+  bodyStyle,
 }: {
   open: boolean;
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  contentStyle?: React.CSSProperties;
+  bodyStyle?: React.CSSProperties;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -50,6 +54,7 @@ export default function Modal({
           overflow: "hidden",
           display: "flex",
           flexDirection: "column",
+          ...contentStyle,
         }}
       >
         {/* Header */}
@@ -93,6 +98,7 @@ export default function Modal({
             padding: 14,
             overflowY: "auto",
             flex: "1 1 auto",
+            ...bodyStyle,
           }}
         >
           {children}

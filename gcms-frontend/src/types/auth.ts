@@ -1,6 +1,6 @@
 export type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";

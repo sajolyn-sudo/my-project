@@ -8,6 +8,21 @@ dotenv.config();
 
 const app = express();
 
+function normalizeDbRole(input: unknown): string {
+  const role = String(input || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, "_");
+
+  if (role === "STAFF" || role === "COUNSELOR") return "STAFF";
+  if (role === "NON_TEACHING" || role === "NON_TEACHING_STAFF") {
+    return "NON_TEACHING_PERSONNEL";
+  }
+  if (role === "NON_TEACHING_PERSONNEL") return "NON_TEACHING_PERSONNEL";
+  if (role === "ADMIN" || role === "TEACHER" || role === "STUDENT") return role;
+  return role;
+}
+
 // ===== Env =====
 const PORT = Number(process.env.PORT || 5000);
 
@@ -93,8 +108,9 @@ app.post("/login", async (req, res) => {
     }
     app.post("/users", async (req, res) => {
       const { fname, mname, lname, email, role } = req.body;
+      const normalizedRole = normalizeDbRole(role);
 
-      if (!fname || !lname || !email || !role) {
+      if (!fname || !lname || !email || !normalizedRole) {
         return res.status(400).json({ ok: false, error: "Missing fields" });
       }
 
@@ -102,7 +118,7 @@ app.post("/login", async (req, res) => {
         // get user_type_id
         const [typeRows] = await pool.query(
           `SELECT user_type_id FROM user_type WHERE UPPER(user_type_name)=? LIMIT 1`,
-          [role.toUpperCase()],
+          [normalizedRole],
         );
 
         const types = typeRows as any[];
@@ -162,9 +178,7 @@ app.post("/users", async (req, res) => {
   const email = String(req.body?.email || "")
     .trim()
     .toLowerCase();
-  const role = String(req.body?.role || "")
-    .trim()
-    .toUpperCase(); // ADMIN/COUNSELOR/STUDENT
+  const role = normalizeDbRole(req.body?.role); // ADMIN/STAFF/STUDENT
 
   // optional for students
   const collegeId = req.body?.collegeId ?? null;

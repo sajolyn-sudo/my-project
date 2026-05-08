@@ -1,21 +1,21 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  BookOpen,
   Building2,
   CalendarDays,
   GraduationCap,
   Layers3,
   MapPin,
-  Paperclip,
   Printer,
-  User,
+  Trash2,
 } from "lucide-react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { getGroupSession, removeGroupSessionMember } from "../lib/entitiesApi";
 
 type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";
@@ -32,6 +32,7 @@ type UserEntity = {
 };
 
 type College = { id: number; name: string };
+type Course = { id: number; name: string; collegeId: number };
 type AcademicYear = { id: number; name: string; isActive: boolean };
 type YearLevel = {
   id: number;
@@ -44,11 +45,15 @@ type GroupSession = {
   id: number;
   academicYearId: number;
   collegeId: number;
+  courseId?: number | null;
   yearLevelId: number;
-  counselorUserId: number;
+  STAFFUserId: number;
   date: string;
+  time?: string | null;
   location: string;
   topic: string;
+  facilitatorUserId?: number | null;
+  facilitator?: string;
   notes?: string;
   attachment?: string;
   createdAt: string;
@@ -62,6 +67,7 @@ type GroupSessionMember = {
 
 const USERS_KEY = "gcms_mock_users_v1";
 const COLLEGES_KEY = "gcms_mock_colleges_v1";
+const COURSES_KEY = "gcms_mock_courses_v1";
 const YEARS_KEY = "gcms_mock_academic_years_v1";
 const YL_KEY = "gcms_mock_year_levels_v1";
 const GS_KEY = "gcms_mock_group_sessions_v1";
@@ -80,6 +86,128 @@ function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
 }
 
+function detailActionStyle(
+  base: React.CSSProperties,
+  {
+    active = false,
+    hovered = false,
+    keepBorder = false,
+  }: { active?: boolean; hovered?: boolean; keepBorder?: boolean } = {},
+): React.CSSProperties {
+  return {
+    ...base,
+    border: keepBorder
+      ? active
+        ? "2px solid #5F6D7A"
+        : "2px solid #000000"
+      : active
+        ? "1px solid #5F6D7A"
+        : "1px solid var(--border)",
+    background: active ? "#5F6D7A" : "white",
+    color: active ? "white" : "#000000",
+    boxShadow: "none",
+    transform: active
+      ? "translateY(1px) scale(0.98)"
+      : hovered
+        ? "translateY(-1px)"
+        : "translateY(0)",
+    transition:
+      "background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease",
+    textDecoration: "none",
+    cursor: "pointer",
+  };
+}
+
+type DetailActionButtonProps = {
+  baseStyle: React.CSSProperties;
+  onClick?: () => void;
+  title: string;
+  ariaLabel?: string;
+  children: React.ReactNode;
+  type?: "button" | "submit" | "reset";
+};
+
+function DetailActionButton({
+  baseStyle,
+  onClick,
+  title,
+  ariaLabel,
+  children,
+  type = "button",
+}: DetailActionButtonProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={detailActionStyle(baseStyle, {
+        active: pressed,
+        hovered,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </button>
+  );
+}
+
+type DetailActionLinkProps = {
+  to: string;
+  title: string;
+  ariaLabel?: string;
+  baseStyle: React.CSSProperties;
+  children: React.ReactNode;
+  keepBorder?: boolean;
+};
+
+function DetailActionLink({
+  to,
+  title,
+  ariaLabel,
+  baseStyle,
+  children,
+  keepBorder = false,
+}: DetailActionLinkProps) {
+  const [hovered, setHovered] = useState(false);
+  const [pressed, setPressed] = useState(false);
+
+  return (
+    <Link
+      to={to}
+      title={title}
+      aria-label={ariaLabel ?? title}
+      style={detailActionStyle(baseStyle, {
+        active: pressed,
+        hovered,
+        keepBorder,
+      })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={() => setPressed(true)}
+      onPointerUp={() => setPressed(false)}
+      onPointerCancel={() => setPressed(false)}
+      onBlur={() => setPressed(false)}
+    >
+      {children}
+    </Link>
+  );
+}
+
 export default function GroupSessionView() {
   const location = useLocation();
   const { id } = useParams();
@@ -92,6 +220,7 @@ export default function GroupSessionView() {
 
   const users = useMemo<UserEntity[]>(() => load<UserEntity[]>(USERS_KEY, []), []);
   const colleges = useMemo<College[]>(() => load<College[]>(COLLEGES_KEY, []), []);
+  const courses = useMemo<Course[]>(() => load<Course[]>(COURSES_KEY, []), []);
   const years = useMemo<AcademicYear[]>(() => load<AcademicYear[]>(YEARS_KEY, []), []);
   const yearLevels = useMemo<YearLevel[]>(() => load<YearLevel[]>(YL_KEY, []), []);
 
@@ -144,15 +273,10 @@ export default function GroupSessionView() {
     };
   }, [sessionId]);
 
-  const labelUser = (uid: number) => {
-    const u = users.find((x) => x.id === uid);
-    if (!u) return "Unknown";
-    const full = `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`;
-    return `${full} (${u.email})`;
-  };
-
   const labelCollege = (cid: number) =>
     colleges.find((c) => c.id === cid)?.name ?? "-";
+  const labelCourse = (courseId?: number | null) =>
+    courses.find((course) => course.id === courseId)?.name ?? "-";
   const labelAY = (ayid: number) => years.find((y) => y.id === ayid)?.name ?? "-";
   const labelYL = (ylid: number) =>
     yearLevels.find((y) => y.id === ylid)?.name ?? "-";
@@ -190,20 +314,30 @@ export default function GroupSessionView() {
     return `${months[m - 1]} ${d}, ${y}`;
   };
 
+  const fmtSessionTime = (value?: string | null) => {
+    if (!value) return "-";
+    const [hourPart, minutePart] = value.split(":");
+    const hours = Number(hourPart);
+    const minutes = Number(minutePart);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return value;
+    const key = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    if (key === "09:00") return "9 AM - 11 AM";
+    if (key === "13:00") return "1 PM - 3 PM";
+    if (key === "15:00") return "3 PM - 5 PM";
+    const suffix = hours >= 12 ? "PM" : "AM";
+    const displayHour = hours % 12 || 12;
+    return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+  };
+
   const openCallSlipPrint = (session: GroupSession) => {
     const sessionMembers = members
       .filter((m) => m.groupSessionId === session.id)
       .map((m) => users.find((u) => u.id === m.studentUserId))
       .filter(Boolean) as UserEntity[];
 
-    const counselor = users.find((u) => u.id === session.counselorUserId);
-    const counselorName = counselor
-      ? `${counselor.fname} ${counselor.mname ? `${counselor.mname} ` : ""}${counselor.lname}`
-      : "Guidance Counselor";
-
     const collegeName = labelCollege(session.collegeId);
     const ylName = labelYL(session.yearLevelId);
-    const courseYear = `${collegeName} • ${ylName}`;
+    const courseYear = `${collegeName} / ${ylName}`;
 
     const chunkSize = 10;
     const chunks: UserEntity[][] = [];
@@ -213,7 +347,8 @@ export default function GroupSessionView() {
     if (chunks.length === 0) chunks.push([]);
 
     const dateIssued = fmtLongDate(new Date().toISOString().slice(0, 10));
-    const scheduleText = `${fmtLongDate(session.date)} (see counselor)`;
+    const scheduleTimeText = fmtSessionTime(session.time);
+    const scheduleText = `${fmtLongDate(session.date)} - ${scheduleTimeText} (see STAFF)`;
     const reasonText = session.topic;
 
     const pages = chunks
@@ -247,7 +382,7 @@ export default function GroupSessionView() {
                 </div>
 
                 <div class="para">
-                  Please see your guidance counselor at the Guidance and Counseling Services Center on
+                  Please see your guidance STAFF at the Guidance and Counseling Services Center on
                   <b>${escapeHtml(scheduleText)}</b>. This is in connection with
                   <b>${escapeHtml(reasonText)}</b>.
                   <br/>Please bring this paper with you upon your visit. See you!
@@ -268,10 +403,7 @@ export default function GroupSessionView() {
                 <div class="conf">CONFIDENTIAL</div>
 
                 <div class="sig">
-                  <div class="name">
-                    ${escapeHtml(counselorName)}
-                    <div style="font-size:11px; opacity:.8">Guidance Counselor</div>
-                  </div>
+                  <div class="name">Guidance STAFF</div>
                 </div>
 
                 <div class="foot">
@@ -311,7 +443,7 @@ export default function GroupSessionView() {
                 <div class="ln"></div>
 
                 <div class="sig" style="margin-top:24px;">
-                  <div class="name">Name and Signature of Guidance Counselor</div>
+                  <div class="name">Name and Signature of Guidance STAFF</div>
                 </div>
 
                 <div class="foot">
@@ -378,6 +510,17 @@ export default function GroupSessionView() {
   const sessionMembers = found
     ? members.filter((m) => m.groupSessionId === found.id)
     : [];
+  const sessionMemberRows = sessionMembers.map((member) => {
+    const user = users.find((item) => item.id === member.studentUserId);
+    const fullName = user
+      ? `${user.fname} ${user.mname ? `${user.mname} ` : ""}${user.lname}`.trim()
+      : "Unknown";
+    return {
+      id: member.id,
+      name: fullName,
+      email: user?.email ?? "-",
+    };
+  });
 
   const removeMember = async (memberId: number) => {
     if (!found) return;
@@ -402,25 +545,17 @@ export default function GroupSessionView() {
     border: "1px solid var(--border)",
   };
 
-  const label: React.CSSProperties = {
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: 0.2,
-    opacity: 0.7,
-    textTransform: "uppercase",
-    marginBottom: 6,
-  };
-
   const chip: React.CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
     gap: 8,
-    padding: "7px 12px",
-    borderRadius: 999,
+    padding: "10px 14px",
+    borderRadius: 12,
     border: "1px solid var(--border)",
     background: "rgba(255,255,255,0.75)",
     fontWeight: 800,
     fontSize: 13,
+    lineHeight: 1.2,
   };
 
   const printButton: React.CSSProperties = {
@@ -434,6 +569,8 @@ export default function GroupSessionView() {
     alignItems: "center",
     gap: 10,
     fontWeight: 900,
+    color: "var(--primary)",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
 
   const iconAction: React.CSSProperties = {
@@ -447,17 +584,20 @@ export default function GroupSessionView() {
     alignItems: "center",
     justifyContent: "center",
     textDecoration: "none",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
 
   const dangerButton: React.CSSProperties = {
-    height: 32,
-    padding: "0 12px",
+    height: 36,
+    width: 36,
     borderRadius: 10,
-    border: "none",
-    background: "#D9534F",
-    color: "white",
+    border: "1px solid rgba(220, 38, 38, 0.18)",
+    background: "rgba(254, 242, 242, 0.95)",
+    color: "#DC2626",
     cursor: "pointer",
-    fontWeight: 800,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   };
 
   if (!found) {
@@ -471,18 +611,18 @@ export default function GroupSessionView() {
             justifyContent: "space-between",
           }}
         >
-          <h2 style={{ fontWeight: 900, margin: 0 }}>Group Session Details</h2>
-          <Link
+          <h2 style={{ fontWeight: 900, margin: 0 }}>Student Circle Details</h2>
+          <DetailActionLink
             to={listHref}
-            title="Back to Group Sessions"
-            aria-label="Back to Group Sessions"
-            style={iconAction}
+            title="Back to Student Circle"
+            ariaLabel="Back to Student Circle"
+            baseStyle={iconAction}
           >
             <ArrowLeft size={18} />
-          </Link>
+          </DetailActionLink>
         </div>
         <div style={card}>
-          <div style={{ opacity: 0.8 }}>{loaded ? "Session not found." : "Loading session..."}</div>
+          <div style={{ opacity: 0.8 }}>{loaded ? "Student Circle not found." : "Loading Student Circle..."}</div>
         </div>
       </div>
     );
@@ -499,46 +639,34 @@ export default function GroupSessionView() {
         }}
       >
         <h2 style={{ fontWeight: 900, margin: 0, marginRight: "auto" }}>
-          Group Session Details
+          Student Circle Details
         </h2>
 
-        <button onClick={() => openCallSlipPrint(found)} style={printButton}>
+        <DetailActionButton
+          onClick={() => openCallSlipPrint(found)}
+          title="Print Call Slip"
+          ariaLabel="Print Call Slip"
+          baseStyle={printButton}
+        >
           <Printer size={18} />
           Print Call Slip
-        </button>
+        </DetailActionButton>
 
-        <Link
+        <DetailActionLink
           to={listHref}
-          title="Back to Group Sessions"
-          aria-label="Back to Group Sessions"
-          style={iconAction}
+          title="Back to Student Circle"
+          ariaLabel="Back to Student Circle"
+          baseStyle={iconAction}
         >
           <ArrowLeft size={18} />
-        </Link>
+        </DetailActionLink>
       </div>
 
       <div style={card}>
-        <div style={label}>Topic</div>
-        <div style={{ fontSize: 30, fontWeight: 900, lineHeight: 1.1 }}>{found.topic}</div>
-
-        <div
-          style={{
-            marginTop: 8,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            color: "rgba(15,23,42,0.8)",
-            fontWeight: 700,
-          }}
-        >
-          <MapPin size={16} />
-          {found.location}
-        </div>
-
         <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
           <span style={chip}>
             <CalendarDays size={14} />
-            {found.date}
+            {fmtLongDate(found.date)} / {fmtSessionTime(found.time)}
           </span>
           <span style={chip}>
             <GraduationCap size={14} />
@@ -552,14 +680,25 @@ export default function GroupSessionView() {
             <Layers3 size={14} />
             {labelYL(found.yearLevelId)}
           </span>
+          <span style={chip}>
+            <MapPin size={14} />
+            {found.location}
+          </span>
         </div>
 
         <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
           <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-            <User size={15} />
-            <span style={{ opacity: 0.8 }}>Counselor:</span>
-            <b>{labelUser(found.counselorUserId)}</b>
+            <BookOpen size={15} />
+            <span style={{ opacity: 0.8 }}>Course:</span>
+            <b>{labelCourse(found.courseId)}</b>
           </div>
+
+          {found.facilitator?.trim() ? (
+            <div>
+              <span style={{ opacity: 0.8 }}>Facilitator:</span>{" "}
+              <b>{found.facilitator}</b>
+            </div>
+          ) : null}
 
           {found.notes ? (
             <div>
@@ -567,16 +706,8 @@ export default function GroupSessionView() {
             </div>
           ) : null}
 
-          {found.attachment ? (
-            <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
-              <Paperclip size={14} />
-              <span style={{ opacity: 0.8 }}>Attachment:</span>
-              <b>{found.attachment}</b>
-            </div>
-          ) : null}
-
           <div style={{ opacity: 0.75, fontSize: 13 }}>
-            Session ID: <b>#{found.id}</b> | Created: <b>{found.createdAt}</b>
+            Student Circle ID: <b>#{found.id}</b> | Created: <b>{found.createdAt}</b>
           </div>
         </div>
       </div>
@@ -595,28 +726,59 @@ export default function GroupSessionView() {
               overflow: "hidden",
             }}
           >
-            {sessionMembers.map((m, idx) => (
-              <div
-                key={m.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                  padding: "12px 14px",
-                  borderTop: idx === 0 ? "none" : "1px solid var(--border)",
-                }}
-              >
-                <div style={{ display: "grid", gap: 2 }}>
-                  <div style={{ fontWeight: 900 }}>{labelUser(m.studentUserId)}</div>
-                  <div style={{ fontSize: 13, opacity: 0.75 }}>Member ID: #{m.id}</div>
-                </div>
-
-                <button onClick={() => removeMember(m.id)} style={dangerButton}>
-                  Remove
-                </button>
-              </div>
-            ))}
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "rgba(15, 23, 42, 0.04)" }}>
+                  <th style={{ textAlign: "left", padding: "12px 14px", fontSize: 13 }}>
+                    Name
+                  </th>
+                  <th style={{ textAlign: "left", padding: "12px 14px", fontSize: 13 }}>
+                    Email
+                  </th>
+                  <th style={{ width: 72, padding: "12px 14px", fontSize: 13 }}> </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sessionMemberRows.map((member, idx) => (
+                  <tr key={member.id}>
+                    <td
+                      style={{
+                        padding: "12px 14px",
+                        borderTop: idx === 0 ? "1px solid var(--border)" : "1px solid var(--border)",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {member.name}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px 14px",
+                        borderTop: "1px solid var(--border)",
+                        opacity: 0.82,
+                      }}
+                    >
+                      {member.email}
+                    </td>
+                    <td
+                      style={{
+                        padding: "12px 14px",
+                        borderTop: "1px solid var(--border)",
+                        textAlign: "center",
+                      }}
+                    >
+                      <button
+                        onClick={() => removeMember(member.id)}
+                        style={dangerButton}
+                        title="Remove member"
+                        aria-label="Remove member"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 

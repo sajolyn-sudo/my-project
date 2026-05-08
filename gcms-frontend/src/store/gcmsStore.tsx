@@ -24,24 +24,30 @@ export type CounselingCase = {
 };
 
 // ===== Referrals
-export type ReferralStatus = "pending" | "reviewed" | "resolved";
+export type ReferralStatus = "pending" | "approved" | "complete";
 
 export type Referral = {
   referral_id: number;
   student_user_id: number;
   referred_by_user_id: number;
-  referred_date: string; // yyyy-mm-dd
+  referred_date?: string; // yyyy-mm-dd when approved/scheduled
+  referred_time?: string;
   reason: string;
   status: ReferralStatus;
   notes?: string;
+  created_at?: string;
 };
 
-// ===== Group Sessions
+// ===== Student Circle
 export type GroupSession = {
   group_session_id: number;
   counselor_user_id: number;
+  facilitator_user_id?: number | null;
   session_date: string; // yyyy-mm-dd
+  session_time?: string;
   location?: string;
+  topic?: string;
+  facilitator?: string;
   notes?: string;
 };
 
@@ -191,7 +197,7 @@ const DEFAULT_REFERRALS: Referral[] = [
     referred_by_user_id: 2,
     referred_date: "2026-01-25",
     reason: "Emotional distress observed",
-    status: "reviewed",
+    status: "ongoing",
     notes: "Advised counseling session.",
   },
 ];

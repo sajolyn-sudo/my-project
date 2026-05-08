@@ -213,7 +213,7 @@ export default function Survey() {
             </p>
             <div style={{ marginTop: 12 }}>
               <Link to="/app/dashboard" style={btnPrimary}>
-                Back to Dashboard →
+                Back to Dashboard â†’
               </Link>
             </div>
           </div>
@@ -246,7 +246,7 @@ export default function Survey() {
               Student Survey
             </h1>
             <p style={{ margin: "6px 0 0", color: "#64748b" }}>
-              Help guidance understand how you’re doing this term.
+              Help guidance understand how youâ€™re doing this term.
             </p>
           </div>
 
@@ -282,7 +282,7 @@ export default function Survey() {
           >
             <div style={{ fontWeight: 950, color: "#0f172a" }}>
               {isSubmitted
-                ? "Your survey is submitted ✅"
+                ? "Your survey is submitted âœ…"
                 : "Your survey is not submitted yet"}
               {submittedAt ? (
                 <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
@@ -290,7 +290,7 @@ export default function Survey() {
                 </div>
               ) : (
                 <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>
-                  Please answer honestly. This helps your counselor support you
+                  Please answer honestly. This helps your STAFF support you
                   better.
                 </div>
               )}
@@ -401,7 +401,7 @@ export default function Survey() {
                     marginBottom: 6,
                   }}
                 >
-                  What’s your biggest concern right now?
+                  Whatâ€™s your biggest concern right now?
                 </div>
                 <textarea
                   value={concerns}
@@ -447,7 +447,7 @@ export default function Survey() {
               </div>
 
               <div style={{ color: "#64748b", fontSize: 13 }}>
-                Note: For now, this page stores “submitted_at” only. Later, we
+                Note: For now, this page stores â€œsubmitted_atâ€ only. Later, we
                 can store the answers in your ERD tables.
               </div>
             </div>

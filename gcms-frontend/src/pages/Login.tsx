@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import logo from "../assets/logo.png";
 
@@ -10,6 +11,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const emailRef = useRef<HTMLInputElement | null>(null);
@@ -55,8 +57,7 @@ export default function Login() {
       if (role === "STUDENT") nav("/app/my-counseling");
       else if (role === "TEACHER" || role === "NON_TEACHING_PERSONNEL") {
         nav("/app/referrals");
-      }
-      else nav("/app/dashboard");
+      } else nav("/app/dashboard");
     } catch (e: any) {
       setError(e?.message || "Failed to fetch");
       setPassword("");
@@ -185,6 +186,27 @@ export default function Login() {
         width: "100%",
         fontWeight: 700,
       },
+      passwordField: {
+        position: "relative",
+      },
+      passwordInput: {
+        paddingRight: 46,
+      },
+      passwordReveal: {
+        position: "absolute",
+        top: "50%",
+        right: 10,
+        transform: "translateY(-50%)",
+        width: 28,
+        height: 28,
+        border: "none",
+        background: "transparent",
+        color: "#4A1AA6",
+        display: "grid",
+        placeItems: "center",
+        cursor: loading ? "not-allowed" : "pointer",
+        opacity: loading ? 0.55 : 0.85,
+      },
       error: {
         background: "rgba(217, 83, 79, 0.10)",
         border: "1px solid rgba(217, 83, 79, 0.28)",
@@ -276,21 +298,35 @@ export default function Login() {
 
           <div style={{ display: "grid", gap: 8 }}>
             <div style={styles.label}>Password</div>
-            <input
-              ref={passwordRef}
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={styles.input}
-              placeholder="Enter password"
-              disabled={loading}
-              autoComplete="new-password"
-              name="gcms_password"
-              data-lpignore="true"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleLogin();
-              }}
-            />
+            <div style={styles.passwordField}>
+              <input
+                ref={passwordRef}
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{ ...styles.input, ...styles.passwordInput }}
+                placeholder="Enter password"
+                disabled={loading}
+                autoComplete="new-password"
+                name="gcms_password"
+                data-lpignore="true"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleLogin();
+                }}
+              />
+              <button
+                type="button"
+                style={styles.passwordReveal}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                disabled={loading}
+                onMouseEnter={() => setShowPassword(true)}
+                onMouseLeave={() => setShowPassword(false)}
+                onFocus={() => setShowPassword(true)}
+                onBlur={() => setShowPassword(false)}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
           {error && <div style={styles.error}>{error}</div>}
 

@@ -1,12 +1,24 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  FileText,
+  UsersRound,
+} from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import {
   fetchEntitiesBootstrap,
+  listGroupSessions,
   listCounselingCases,
   listReferrals,
   type AcademicYear as EntityAcademicYear,
   type CounselingCase as EntityCounselingCase,
+  type GroupSession as EntityGroupSession,
   type Referral as EntityReferral,
   type User as EntityUser,
 } from "../lib/entitiesApi";
@@ -31,17 +43,29 @@ import {
 type AcademicYear = EntityAcademicYear;
 type CounselingCase = EntityCounselingCase;
 type Referral = EntityReferral;
+type GroupSession = EntityGroupSession;
 
 type DashboardUser = EntityUser & {
   createdAt?: string;
   academicYearId?: number;
 };
 type MonthlyReferral = { month: string; count: number };
+type DashboardScheduleItem = {
+  id: string;
+  title: string;
+  type: "Counseling Case" | "Referral Meeting" | "Student Circle";
+  dateKey: string;
+  timeLabel: string;
+  timestamp: number;
+  accent: string;
+  detail: string;
+};
 
 const USERS_KEY = "gcms_mock_users_v1";
 const YEARS_KEY = "gcms_mock_academic_years_v1";
 const REF_KEY = "gcms_mock_referrals_v1";
 const CASES_KEY = "gcms_mock_counseling_cases_v2";
+const GS_KEY = "gcms_mock_group_sessions_v1";
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -54,6 +78,83 @@ function load<T>(key: string, fallback: T): T {
 
 function save<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function dateKeyFromDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toDateKey(value?: string | null): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dateKeyFromDate(dt);
+}
+
+function parseScheduleTimestamp(date?: string | null, time?: string | null): number {
+  const dateKey = toDateKey(date);
+  if (!dateKey) return 0;
+
+  const timeText = String(time || "").trim() || "00:00";
+  const parsed = new Date(`${dateKey}T${timeText}:00`);
+  if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+
+  const fallback = new Date(dateKey);
+  return Number.isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+}
+
+function formatDateLong(value?: string | null): string {
+  const dateKey = toDateKey(value);
+  if (!dateKey) return "No date selected";
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateShort(value?: string | null): string {
+  const dateKey = toDateKey(value);
+  if (!dateKey) return "Date not set";
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatTimeShort(value?: string | null): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "Time not set";
+  const [hourPart, minutePart] = raw.split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return raw;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function shiftMonth(date: Date, delta: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+function sameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
 function animateTo(
@@ -107,6 +208,7 @@ export default function Dashboard() {
   const user = useAuthStore((s) => s.user);
   if (!user) return null;
 
+  const dashboardDisplayName = user.role === "ADMIN" ? "Maam" : user.fname;
   const isAdmin = user.role === "ADMIN";
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>(() =>
     load<AcademicYear[]>(YEARS_KEY, fallbackAcademicYears),
@@ -120,11 +222,19 @@ export default function Dashboard() {
   const [allReferrals, setAllReferrals] = useState<Referral[]>(() =>
     load<Referral[]>(REF_KEY, []),
   );
+  const [allSessions, setAllSessions] = useState<GroupSession[]>(() =>
+    load<GroupSession[]>(GS_KEY, []),
+  );
 
   const [selectedAyId, setSelectedAyId] = useState<number>(() => {
     const years = load<AcademicYear[]>(YEARS_KEY, fallbackAcademicYears);
     return years.find((y) => y.isActive)?.id ?? years[0]?.id ?? 0;
   });
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(() =>
+    dateKeyFromDate(new Date()),
+  );
+  const [scheduleCollapsed, setScheduleCollapsed] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -134,9 +244,10 @@ export default function Dashboard() {
       fetchEntitiesBootstrap(),
       listCounselingCases(),
       listReferrals(),
+      listGroupSessions(),
     ]).then((results) => {
       if (!alive) return;
-      const [bootstrapResult, casesResult, referralsResult] = results;
+      const [bootstrapResult, casesResult, referralsResult, sessionsResult] = results;
 
       if (bootstrapResult.status === "fulfilled") {
         const payload = bootstrapResult.value;
@@ -176,6 +287,12 @@ export default function Dashboard() {
         setAllReferrals(nextReferrals);
         save(REF_KEY, nextReferrals);
       }
+
+      if (sessionsResult.status === "fulfilled") {
+        const nextSessions = sessionsResult.value.sessions ?? [];
+        setAllSessions(nextSessions);
+        save(GS_KEY, nextSessions);
+      }
     });
 
     return () => {
@@ -190,6 +307,13 @@ export default function Dashboard() {
       setSelectedAyId(academicYears.find((ay) => ay.isActive)?.id ?? academicYears[0].id);
     }
   }, [academicYears, selectedAyId]);
+
+  const usersById = useMemo(() => {
+    const map = new Map<number, DashboardUser>();
+    for (const entry of allUsers) map.set(entry.id, entry);
+    return map;
+  }, [allUsers]);
+
   // ---------- Filtered data ----------
   const userCategoryData = useMemo(() => {
     let students = 0;
@@ -236,7 +360,7 @@ export default function Dashboard() {
     const counts = new Array<number>(12).fill(0);
     for (const r of allReferrals) {
       if (r.academicYearId !== selectedAyId) continue;
-      const dt = new Date(r.referredDate);
+      const dt = new Date(String(r.referredDate || ""));
       if (Number.isNaN(dt.getTime())) continue;
       counts[dt.getMonth()] += 1;
     }
@@ -249,31 +373,185 @@ export default function Dashboard() {
   const targetStats = useMemo(() => {
     const now = new Date();
     const usersCount = allUsers.length;
-    const activeCases = allCases.filter(
-      (c) => c.academicYearId === selectedAyId && c.status !== "Completed",
-    ).length;
     const referralsThisMonth = allReferrals.filter((r) => {
       if (r.academicYearId !== selectedAyId) return false;
-      const dt = new Date(r.referredDate);
+      const dt = new Date(String(r.referredDate || ""));
       if (Number.isNaN(dt.getTime())) return false;
       return dt.getMonth() === now.getMonth() && dt.getFullYear() === now.getFullYear();
     }).length;
 
-    return { totalUsers: usersCount, activeCases, referralsThisMonth };
-  }, [allUsers, allCases, allReferrals, selectedAyId]);
+    return { totalUsers: usersCount, referralsThisMonth };
+  }, [allUsers, allReferrals, selectedAyId]);
+
+  const scheduleItems = useMemo<DashboardScheduleItem[]>(() => {
+    const next: DashboardScheduleItem[] = [];
+
+    for (const item of allCases) {
+      if (item.academicYearId !== selectedAyId) continue;
+      if (item.status === "Completed") continue;
+      const dateKey = toDateKey(item.date);
+      if (!dateKey) continue;
+
+      const student = usersById.get(item.studentId);
+      next.push({
+        id: `case-${item.id}`,
+        title: student
+          ? `${student.fname} ${student.lname}`
+          : `Student #${item.studentId}`,
+        type: "Counseling Case",
+        dateKey,
+        timeLabel: formatTimeShort(item.time),
+        timestamp: parseScheduleTimestamp(item.date, item.time),
+        accent: "rgba(37,99,235,1)",
+        detail: `Location: Guidance Office · Status: ${item.status}`,
+      });
+    }
+
+    for (const item of allReferrals) {
+      if (item.academicYearId !== selectedAyId) continue;
+      const statusText = String(item.status || "").trim().toLowerCase();
+      if (
+        [
+          "pending",
+          "new",
+          "complete",
+          "completed",
+          "closed",
+          "resolved",
+        ].includes(statusText)
+      ) {
+        continue;
+      }
+      const dateKey = toDateKey(item.referredDate);
+      if (!dateKey) continue;
+
+      const student = usersById.get(item.studentId);
+      next.push({
+        id: `referral-${item.id}`,
+        title: student
+          ? `${student.fname} ${student.lname}`
+          : `Student #${item.studentId}`,
+        type: "Referral Meeting",
+        dateKey,
+        timeLabel: formatTimeShort(item.referredTime),
+        timestamp: parseScheduleTimestamp(item.referredDate, item.referredTime),
+        accent: "rgba(251,191,36,1)",
+        detail: `Location: Guidance Office · Status: ${String(item.status || "Approved")}`,
+      });
+    }
+
+    for (const item of allSessions) {
+      if (item.academicYearId !== selectedAyId) continue;
+      const dateKey = toDateKey(item.date);
+      if (!dateKey) continue;
+
+      next.push({
+        id: `session-${item.id}`,
+        title: item.topic || `Session #${item.id}`,
+        type: "Student Circle",
+        dateKey,
+        timeLabel: formatTimeShort(item.time),
+        timestamp: parseScheduleTimestamp(item.date, item.time),
+        accent: "rgba(9,14,25,1)",
+        detail: item.location ? `Location: ${item.location}` : "Student Circle",
+      });
+    }
+
+    next.sort((a, b) => a.timestamp - b.timestamp || a.title.localeCompare(b.title));
+    return next;
+  }, [allCases, allReferrals, allSessions, selectedAyId, usersById]);
+
+  const todayKey = useMemo(() => dateKeyFromDate(new Date()), []);
+
+  const todayScheduleCount = useMemo(
+    () => scheduleItems.filter((item) => item.dateKey === todayKey).length,
+    [scheduleItems, todayKey],
+  );
+
+  const upcomingWeekCount = useMemo(() => {
+    const now = new Date();
+    const weekEnd = new Date(now);
+    weekEnd.setDate(now.getDate() + 7);
+    const weekEndKey = dateKeyFromDate(weekEnd);
+    return scheduleItems.filter(
+      (item) => item.dateKey >= todayKey && item.dateKey <= weekEndKey,
+    ).length;
+  }, [scheduleItems, todayKey]);
+
+  const scheduledThisMonthCount = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+    const startKey = dateKeyFromDate(monthStart);
+    const endKey = dateKeyFromDate(monthEnd);
+    return scheduleItems.filter(
+      (item) => item.dateKey >= startKey && item.dateKey <= endKey,
+    ).length;
+  }, [calendarMonth, scheduleItems]);
+
+  const upcomingAgenda = useMemo(
+    () => scheduleItems.filter((item) => item.dateKey >= todayKey).slice(0, 6),
+    [scheduleItems, todayKey],
+  );
+
+  const selectedDateItems = useMemo(
+    () =>
+      scheduleItems.filter((item) => item.dateKey === selectedDateKey),
+    [scheduleItems, selectedDateKey],
+  );
+
+  const scheduleDateCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of scheduleItems) {
+      map.set(item.dateKey, (map.get(item.dateKey) ?? 0) + 1);
+    }
+    return map;
+  }, [scheduleItems]);
+
+  const scheduleItemsByDate = useMemo(() => {
+    const map = new Map<string, DashboardScheduleItem[]>();
+    for (const item of scheduleItems) {
+      const current = map.get(item.dateKey) ?? [];
+      current.push(item);
+      map.set(item.dateKey, current);
+    }
+    return map;
+  }, [scheduleItems]);
+
+  const calendarCells = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const cellDate = new Date(gridStart);
+      cellDate.setDate(gridStart.getDate() + index);
+      const key = dateKeyFromDate(cellDate);
+      const count = scheduleDateCounts.get(key) ?? 0;
+      const items = scheduleItemsByDate.get(key) ?? [];
+      return {
+        key,
+        label: cellDate.getDate(),
+        count,
+        isCurrentMonth: sameMonth(cellDate, calendarMonth),
+        isSelected: key === selectedDateKey,
+        isToday: key === todayKey,
+        tooltip:
+          items.length > 0
+            ? items
+                .map((item) => `${item.timeLabel} · ${item.title} · ${item.detail}`)
+                .join("\n")
+            : "No schedules",
+      };
+    });
+  }, [calendarMonth, scheduleDateCounts, scheduleItemsByDate, selectedDateKey, todayKey]);
 
   // ---------- Animated counters ----------
   const [totalUsers, setTotalUsers] = useState(0);
-  const [activeCases, setActiveCases] = useState(0);
   const [referralsThisMonth, setReferralsThisMonth] = useState(0);
 
   useEffect(() => {
     animateTo(totalUsers, targetStats.totalUsers, 650, setTotalUsers);
   }, [targetStats.totalUsers]);
-
-  useEffect(() => {
-    animateTo(activeCases, targetStats.activeCases, 650, setActiveCases);
-  }, [targetStats.activeCases]);
 
   useEffect(() => {
     animateTo(
@@ -366,7 +644,7 @@ export default function Dashboard() {
     minWidth: 170,
   };
 
-  const grid3: CSSProperties = {
+  const statsGrid: CSSProperties = {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 12,
@@ -376,6 +654,13 @@ export default function Dashboard() {
     display: "grid",
     gridTemplateColumns: "1.25fr 0.85fr",
     gap: 12,
+  };
+
+  const calendarGrid: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.45fr) minmax(300px, 0.85fr)",
+    gap: 14,
+    alignItems: "start",
   };
 
   const statCard: CSSProperties = {
@@ -469,6 +754,119 @@ export default function Dashboard() {
     border: "1px solid rgba(15,23,42,0.10)",
     background: "rgba(255,255,255,0.78)",
     padding: 12,
+  };
+
+  const sectionHeader: CSSProperties = {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  };
+
+  const monthNavButton = (disabled = false): CSSProperties => ({
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    border: "1px solid rgba(15,23,42,0.10)",
+    background: "rgba(255,255,255,0.85)",
+    color: ink,
+    display: "grid",
+    placeItems: "center",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+  });
+
+  const collapseButton: CSSProperties = {
+    ...monthNavButton(),
+    width: 42,
+    height: 42,
+  };
+
+  const indicatorGrid: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 10,
+    marginTop: 14,
+  };
+
+  const indicatorCard: CSSProperties = {
+    borderRadius: 18,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background: "rgba(255,255,255,0.82)",
+    padding: "14px 14px 12px",
+    boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+    display: "grid",
+    gap: 4,
+  };
+
+  const indicatorLabel: CSSProperties = {
+    fontSize: 11.5,
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    fontWeight: 900,
+    color: mutedInk,
+  };
+
+  const indicatorValue: CSSProperties = {
+    fontSize: 28,
+    fontWeight: 1000,
+    color: ink,
+    lineHeight: 1,
+  };
+
+  const calendarWrap: CSSProperties = {
+    borderRadius: 22,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,250,252,0.95) 100%)",
+    padding: 16,
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
+  };
+
+  const weekdayGrid: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    gap: 8,
+    marginBottom: 8,
+  };
+
+  const weekdayCell: CSSProperties = {
+    fontSize: 11.5,
+    fontWeight: 900,
+    color: mutedInk,
+    textTransform: "uppercase",
+    textAlign: "center",
+    padding: "6px 0",
+  };
+
+  const calendarGridCells: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    gap: 8,
+  };
+
+  const agendaCard: CSSProperties = {
+    ...card,
+    padding: 16,
+    display: "grid",
+    gap: 12,
+  };
+
+  const agendaList: CSSProperties = {
+    display: "grid",
+    gap: 10,
+  };
+
+  const agendaRow: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "auto 1fr",
+    gap: 12,
+    alignItems: "start",
+    padding: 12,
+    borderRadius: 16,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background: "rgba(255,255,255,0.84)",
   };
 
   // Chart mode
@@ -634,7 +1032,7 @@ export default function Dashboard() {
               }}
             >
               <span style={sub}>
-                Welcome, <b style={{ color: ink }}>{user.fname}</b>
+                Welcome, <b style={{ color: ink }}>{dashboardDisplayName}</b>
               </span>
               <span
                 style={{
@@ -673,7 +1071,7 @@ export default function Dashboard() {
       </div>
 
       {/* Summary cards */}
-      <div style={grid3}>
+      <div className="__dash_stats_grid" style={statsGrid}>
         <div style={shellBg}>
           <div
             style={{ ...statCard, position: "relative", overflow: "hidden" }}
@@ -683,7 +1081,7 @@ export default function Dashboard() {
               <div style={statLabel}>Total Users</div>
               <div style={statValue}>{totalUsers}</div>
               <div style={statHint}>
-                Students, counselors, teachers, admins
+                Students, STAFFs, teachers, admins
               </div>
             </div>
             <div style={accentPill("blue")} aria-hidden>
@@ -694,30 +1092,6 @@ export default function Dashboard() {
                   borderRadius: 6,
                   background: `linear-gradient(135deg, ${blue} 0%, rgba(29,78,216,1) 100%)`,
                   boxShadow: "0 10px 18px rgba(37,99,235,0.22)",
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div style={shellBg}>
-          <div
-            style={{ ...statCard, position: "relative", overflow: "hidden" }}
-          >
-            <div style={leftStripe("yellow")} aria-hidden />
-            <div style={statLeft}>
-              <div style={statLabel}>Active Counseling Cases</div>
-              <div style={statValue}>{activeCases}</div>
-              <div style={statHint}>Ongoing / scheduled</div>
-            </div>
-            <div style={accentPill("yellow")} aria-hidden>
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: 6,
-                  background: `linear-gradient(135deg, ${yellow} 0%, rgba(245,158,11,1) 100%)`,
-                  boxShadow: "0 10px 18px rgba(245,158,11,0.20)",
                 }}
               />
             </div>
@@ -747,10 +1121,343 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        <div style={shellBg}>
+          <div
+            style={{ ...statCard, position: "relative", overflow: "hidden" }}
+          >
+            <div style={leftStripe("yellow")} aria-hidden />
+            <div style={statLeft}>
+              <div style={statLabel}>Upcoming This Week</div>
+              <div style={statValue}>{upcomingWeekCount}</div>
+              <div style={statHint}>Schedules across cases, referrals, and sessions</div>
+            </div>
+            <div style={accentPill("yellow")} aria-hidden>
+              <CalendarDays size={22} color="rgba(161,98,7,0.92)" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={shellBg}>
+        <div style={card}>
+          <div style={sectionHeader}>
+            <div style={{ display: "grid", gap: 4 }}>
+              <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
+                Upcoming Schedules
+              </div>
+              <div style={sub}>
+                A unified calendar view for counseling cases, referral meetings, and Student Circle sessions.
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}
+                style={monthNavButton()}
+                aria-label="Previous month"
+                disabled={scheduleCollapsed}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div
+                style={{
+                  minWidth: 170,
+                  textAlign: "center",
+                  fontWeight: 900,
+                  color: ink,
+                  padding: "0 6px",
+                }}
+              >
+                {calendarMonth.toLocaleDateString(undefined, {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}
+                style={monthNavButton()}
+                aria-label="Next month"
+                disabled={scheduleCollapsed}
+              >
+                <ChevronRight size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleCollapsed((current) => !current)}
+                style={collapseButton}
+                aria-label={scheduleCollapsed ? "Expand calendar" : "Collapse calendar"}
+                title={scheduleCollapsed ? "Expand calendar" : "Collapse calendar"}
+              >
+                {scheduleCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+              </button>
+            </div>
+          </div>
+
+          {scheduleCollapsed ? (
+            <div
+              style={{
+                marginTop: 14,
+                borderRadius: 18,
+                border: "1px dashed rgba(15,23,42,0.12)",
+                background: "rgba(248,250,252,0.75)",
+                padding: "14px 16px",
+                color: mutedInk,
+                fontSize: 13,
+              }}
+            >
+              Calendar hidden. Use the collapse icon to expand the schedule view again.
+            </div>
+          ) : (
+            <>
+              <div style={indicatorGrid}>
+                <div style={indicatorCard}>
+                  <div style={indicatorLabel}>Today</div>
+                  <div style={indicatorValue}>{todayScheduleCount}</div>
+                  <div style={sub}>Scheduled items on {formatDateShort(todayKey)}</div>
+                </div>
+                <div style={indicatorCard}>
+                  <div style={indicatorLabel}>Next 7 Days</div>
+                  <div style={indicatorValue}>{upcomingWeekCount}</div>
+                  <div style={sub}>All upcoming sessions and meetings</div>
+                </div>
+                <div style={indicatorCard}>
+                  <div style={indicatorLabel}>This Month</div>
+                  <div style={indicatorValue}>{scheduledThisMonthCount}</div>
+                  <div style={sub}>Items plotted on the visible calendar month</div>
+                </div>
+              </div>
+
+              <div className="__dash_calendar_grid" style={calendarGrid}>
+                <div style={calendarWrap}>
+                  <div style={weekdayGrid}>
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+                      <div key={label} style={weekdayCell}>
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={calendarGridCells}>
+                    {calendarCells.map((cell) => (
+                      <button
+                        key={cell.key}
+                        type="button"
+                        onClick={() => setSelectedDateKey(cell.key)}
+                        style={{
+                          minHeight: 104,
+                          borderRadius: 18,
+                          border: cell.isSelected
+                            ? `1px solid ${blue}`
+                            : cell.isToday
+                              ? "1px solid rgba(37,99,235,0.25)"
+                              : "1px solid rgba(15,23,42,0.08)",
+                          background: cell.isSelected
+                            ? "linear-gradient(180deg, rgba(219,234,254,0.86) 0%, rgba(255,255,255,0.96) 100%)"
+                            : cell.isCurrentMonth
+                              ? "rgba(255,255,255,0.92)"
+                              : "rgba(241,245,249,0.78)",
+                          color: cell.isCurrentMonth ? ink : "rgba(15,23,42,0.42)",
+                          padding: 10,
+                          textAlign: "left",
+                          cursor: "pointer",
+                          display: "grid",
+                          alignContent: "space-between",
+                          gap: 10,
+                          boxShadow: cell.isSelected
+                            ? "0 12px 24px rgba(37,99,235,0.14)"
+                            : "none",
+                        }}
+                        aria-label={`Select ${cell.key}`}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 900,
+                              color: cell.isToday ? blue : undefined,
+                            }}
+                          >
+                            {cell.label}
+                          </span>
+                          {cell.count > 0 && (
+                            <span
+                              style={{
+                                minWidth: 22,
+                                height: 22,
+                                borderRadius: 999,
+                                padding: "0 7px",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 11.5,
+                                fontWeight: 900,
+                                background: "rgba(37,99,235,0.12)",
+                                color: blue,
+                              }}
+                            >
+                              {cell.count}
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ display: "grid", gap: 8 }}>
+                          <div
+                            style={{
+                              height: 6,
+                              borderRadius: 999,
+                              background:
+                                cell.count > 0
+                                  ? "linear-gradient(90deg, rgba(37,99,235,0.9) 0%, rgba(251,191,36,0.85) 100%)"
+                                  : "rgba(15,23,42,0.06)",
+                            }}
+                          />
+                          <div
+                            style={{
+                              fontSize: 11.5,
+                              lineHeight: 1.35,
+                              color: cell.count > 0 ? ink : mutedInk,
+                              fontWeight: cell.count > 0 ? 700 : 500,
+                            }}
+                          >
+                            {cell.count > 0
+                              ? `${cell.count} scheduled item${cell.count > 1 ? "s" : ""}`
+                              : "No schedules"}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={agendaCard}>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
+                      {formatDateLong(selectedDateKey)}
+                    </div>
+                    <div style={sub}>
+                      {selectedDateItems.length > 0
+                        ? `${selectedDateItems.length} scheduled item${selectedDateItems.length > 1 ? "s" : ""} on this date`
+                        : "No scheduled items on the selected date."}
+                    </div>
+                  </div>
+
+                  <div style={agendaList}>
+                    {selectedDateItems.length === 0 ? (
+                      <div
+                        style={{
+                          borderRadius: 16,
+                          border: "1px dashed rgba(15,23,42,0.14)",
+                          padding: 16,
+                          color: mutedInk,
+                          fontSize: 13,
+                        }}
+                      >
+                        Pick a highlighted date to inspect the schedule details.
+                      </div>
+                    ) : (
+                      selectedDateItems.map((item) => (
+                        <div key={item.id} style={agendaRow}>
+                          <div
+                            style={{
+                              width: 10,
+                              height: 44,
+                              borderRadius: 999,
+                              background: item.accent,
+                            }}
+                          />
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 900, color: ink }}>{item.title}</span>
+                              <span
+                                style={{
+                                  fontSize: 11.5,
+                                  fontWeight: 900,
+                                  padding: "4px 8px",
+                                  borderRadius: 999,
+                                  background: "rgba(15,23,42,0.06)",
+                                  color: mutedInk,
+                                }}
+                              >
+                                {item.type}
+                              </span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, color: mutedInk, fontSize: 12.5 }}>
+                              <Clock3 size={14} />
+                              <span>{item.timeLabel}</span>
+                            </div>
+                            <div style={{ fontSize: 12.5, color: mutedInk }}>{item.detail}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 900, color: ink }}>
+                      Next Up
+                    </div>
+                    {upcomingAgenda.length === 0 ? (
+                      <div style={{ color: mutedInk, fontSize: 13 }}>
+                        No upcoming schedules recorded yet.
+                      </div>
+                    ) : (
+                      upcomingAgenda.map((item) => (
+                        <div key={`${item.id}-next`} style={{ ...agendaRow, padding: 10 }}>
+                          <div
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 12,
+                              background: "rgba(15,23,42,0.04)",
+                              display: "grid",
+                              placeItems: "center",
+                              color: item.accent,
+                            }}
+                          >
+                            {item.type === "Referral Meeting" ? (
+                              <FileText size={16} />
+                            ) : item.type === "Student Circle" ? (
+                              <UsersRound size={16} />
+                            ) : (
+                              <CalendarDays size={16} />
+                            )}
+                          </div>
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <div style={{ fontWeight: 800, color: ink }}>{item.title}</div>
+                            <div style={{ fontSize: 12, color: mutedInk }}>
+                              {item.type} · {formatDateShort(item.dateKey)} · {item.timeLabel}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Chart + User Distribution */}
-      <div style={grid2}>
+      <div className="__dash_grid2" style={grid2}>
         <div style={shellBg}>
           <div style={chartCard}>
             <div
@@ -912,8 +1619,17 @@ export default function Dashboard() {
       <style>
         {`
           @media (max-width: 980px){
-            .__dash_grid3 { grid-template-columns: 1fr !important; }
+            .__dash_stats_grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
             .__dash_grid2 { grid-template-columns: 1fr !important; }
+            .__dash_calendar_grid { grid-template-columns: 1fr !important; }
+          }
+          @media (max-width: 720px){
+            .__dash_stats_grid { grid-template-columns: 1fr !important; }
+          }
+          @media (max-width: 640px){
+            .__dash_calendar_grid button[aria-label^="Select"] {
+              min-height: 88px !important;
+            }
           }
         `}
       </style>

@@ -3,6 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { postJSON } from "../lib/api";
 import { fetchEntitiesBootstrap } from "../lib/entitiesApi";
+import {
+  normalizeSentenceCaseName,
+  toSentenceCaseNameInput,
+} from "../lib/nameCase";
 import { useAuthStore } from "../store/authStore";
 import logo from "../assets/logo.png";
 
@@ -102,9 +106,9 @@ export default function SignUp() {
         ok: boolean;
         message?: string;
       }>("/register.php", {
-        firstName: firstName.trim(),
-        middleName: middleName.trim(),
-        lastName: lastName.trim(),
+        firstName: normalizeSentenceCaseName(firstName),
+        middleName: normalizeSentenceCaseName(middleName),
+        lastName: normalizeSentenceCaseName(lastName),
         username: username.trim(),
         email: cleanEmail,
         collegeId,
@@ -378,7 +382,9 @@ export default function SignUp() {
               <div style={styles.label}>First Name</div>
               <input
                 value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                onChange={(e) =>
+                  setFirstName(toSentenceCaseNameInput(e.target.value))
+                }
                 style={styles.input}
                 placeholder="e.g. Juan"
                 disabled={loading}
@@ -389,7 +395,9 @@ export default function SignUp() {
               <div style={styles.label}>Middle Name</div>
               <input
                 value={middleName}
-                onChange={(e) => setMiddleName(e.target.value)}
+                onChange={(e) =>
+                  setMiddleName(toSentenceCaseNameInput(e.target.value))
+                }
                 style={styles.input}
                 placeholder="Optional"
                 disabled={loading}
@@ -400,7 +408,9 @@ export default function SignUp() {
               <div style={styles.label}>Last Name</div>
               <input
                 value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                onChange={(e) =>
+                  setLastName(toSentenceCaseNameInput(e.target.value))
+                }
                 style={styles.input}
                 placeholder="e.g. Dela Cruz"
                 disabled={loading}

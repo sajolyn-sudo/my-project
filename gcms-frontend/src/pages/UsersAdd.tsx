@@ -2,10 +2,16 @@ import type { CSSProperties } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { postJSON } from "../lib/api";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
+import UserManagementProcessingOverlay from "../components/UserManagementProcessingOverlay";
+import {
+  normalizeSentenceCaseName,
+  toSentenceCaseNameInput,
+} from "../lib/nameCase";
 
 type Role =
   | "ADMIN"
-  | "COUNSELOR"
+  | "STAFF"
   | "TEACHER"
   | "NON_TEACHING_PERSONNEL"
   | "STUDENT";
@@ -26,14 +32,7 @@ type BootstrapResponse = {
 };
 
 const BISU_DOMAIN = "bisu.edu.ph";
-
-function toSentenceCaseName(value: string): string {
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase()
-    .replace(/(^|[\s'-])([a-z])/g, (m) => m.toUpperCase());
-}
+const PROCESSING_MIN_MS = 2000;
 
 function normalizeEmailInput(value: string): string {
   const clean = String(value || "")
@@ -57,9 +56,14 @@ function normalizeBisuEmail(value: string): string {
   return `${local}@${BISU_DOMAIN}`;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function UsersAdd() {
   const navigate = useNavigate();
 
+  const [isAddPressed, setIsAddPressed] = useState(false);
   const [fname, setFname] = useState("");
   const [mname, setMname] = useState("");
   const [lname, setLname] = useState("");
@@ -74,6 +78,7 @@ export default function UsersAdd() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -137,9 +142,9 @@ export default function UsersAdd() {
     setMessage("");
     if (loading) return;
 
-    const f = toSentenceCaseName(fname);
-    const m = toSentenceCaseName(mname);
-    const l = toSentenceCaseName(lname);
+    const f = normalizeSentenceCaseName(fname);
+    const m = normalizeSentenceCaseName(mname);
+    const l = normalizeSentenceCaseName(lname);
     const e = normalizeBisuEmail(email);
     if (!f || !l || !e) {
       setError("First name, last name, and BISU email are required.");
@@ -151,6 +156,7 @@ export default function UsersAdd() {
     }
 
     try {
+      const startedAt = Date.now();
       setLoading(true);
       await postJSON<{ ok?: boolean; users_id?: number }>("/create_user.php", {
         fname: f,
@@ -162,6 +168,10 @@ export default function UsersAdd() {
         collegeId: role === "STUDENT" ? collegeId : undefined,
         yearLevelId: role === "STUDENT" ? yearLevelId : undefined,
       });
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < PROCESSING_MIN_MS) {
+        await wait(PROCESSING_MIN_MS - elapsed);
+      }
       setMessage("User added successfully.");
       setFname("");
       setMname("");
@@ -169,6 +179,7 @@ export default function UsersAdd() {
       setEmail("");
       setPassword("");
       setRole("STUDENT");
+      setShowSuccessNotice(true);
     } catch (e: any) {
       setError(e?.message || "Failed to add user.");
     } finally {
@@ -194,22 +205,22 @@ export default function UsersAdd() {
           <input
             placeholder="First name"
             value={fname}
-            onChange={(e) => setFname(e.target.value)}
-            onBlur={() => setFname((v) => toSentenceCaseName(v))}
+            onChange={(e) => setFname(toSentenceCaseNameInput(e.target.value))}
+            onBlur={() => setFname((v) => normalizeSentenceCaseName(v))}
             style={inputStyle}
           />
           <input
             placeholder="Middle name (optional)"
             value={mname}
-            onChange={(e) => setMname(e.target.value)}
-            onBlur={() => setMname((v) => toSentenceCaseName(v))}
+            onChange={(e) => setMname(toSentenceCaseNameInput(e.target.value))}
+            onBlur={() => setMname((v) => normalizeSentenceCaseName(v))}
             style={inputStyle}
           />
           <input
             placeholder="Last name"
             value={lname}
-            onChange={(e) => setLname(e.target.value)}
-            onBlur={() => setLname((v) => toSentenceCaseName(v))}
+            onChange={(e) => setLname(toSentenceCaseNameInput(e.target.value))}
+            onBlur={() => setLname((v) => normalizeSentenceCaseName(v))}
             style={inputStyle}
           />
         </div>
@@ -229,9 +240,8 @@ export default function UsersAdd() {
           >
             <option value="STUDENT">Student</option>
             <option value="TEACHER">Teacher</option>
-            <option value="COUNSELOR">Counselor</option>
+            <option value="STAFF">STAFF</option>
             <option value="NON_TEACHING_PERSONNEL">Non Teaching Personnel</option>
-            <option value="ADMIN">Admin</option>
           </select>
           <input
             type="password"
@@ -274,11 +284,33 @@ export default function UsersAdd() {
         {message && <div style={okBox}>{message}</div>}
 
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-          <button onClick={handleSubmit} style={primaryButton} disabled={loading}>
+          <button
+            onClick={handleSubmit}
+            style={addUserButtonStyle(isAddPressed, loading)}
+            disabled={loading}
+            onPointerDown={() => setIsAddPressed(true)}
+            onPointerUp={() => setIsAddPressed(false)}
+            onPointerLeave={() => setIsAddPressed(false)}
+            onPointerCancel={() => setIsAddPressed(false)}
+            onBlur={() => setIsAddPressed(false)}
+          >
             {loading ? "Adding..." : "Add User"}
           </button>
         </div>
       </div>
+
+      <SuccessNoticeModal
+        open={showSuccessNotice}
+        onClose={() => setShowSuccessNotice(false)}
+        title="User Added"
+        message="The user has been added successfully."
+      />
+
+      <UserManagementProcessingOverlay
+        open={loading}
+        title="Adding User"
+        message="Please wait while we add the user to User Management."
+      />
     </div>
   );
 }
@@ -324,6 +356,22 @@ const primaryButton: CSSProperties = {
   fontWeight: 700,
   cursor: "pointer",
 };
+
+const addUserButtonStyle = (
+  pressed: boolean,
+  disabled = false,
+): CSSProperties => ({
+  ...primaryButton,
+  border: "none",
+  background: pressed && !disabled ? "#244957" : "var(--primary)",
+  color: "white",
+  boxShadow: pressed && !disabled ? "none" : "var(--shadow)",
+  transform: pressed && !disabled ? "translateY(1px)" : "translateY(0)",
+  opacity: disabled ? 0.7 : 1,
+  cursor: disabled ? "not-allowed" : "pointer",
+  transition:
+    "background-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease",
+});
 
 const ghostButton: CSSProperties = {
   height: 36,

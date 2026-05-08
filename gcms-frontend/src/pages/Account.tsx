@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAuthStore } from "../store/authStore";
 import {
   User,
@@ -29,6 +35,7 @@ function roleDisplay(value: string): string {
   if (role === "NON_TEACHING" || role === "NON_TEACHING_STAFF") {
     return "NON TEACHING PERSONNEL";
   }
+  if (role === "COUNSELOR") return "STAFF";
   return role.replaceAll("_", " ");
 }
 
@@ -160,16 +167,19 @@ function ActionButton({
   text,
   onClick,
   variant = "yellow",
+  disabled = false,
 }: {
   text: string;
   onClick?: () => void;
   variant?: "yellow" | "blue";
+  disabled?: boolean;
 }) {
   const isYellow = variant === "yellow";
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         height: 40,
         padding: "0 14px",
@@ -181,7 +191,7 @@ function ActionButton({
           ? "linear-gradient(135deg, rgba(251,191,36,1), rgba(245,158,11,1))"
           : "linear-gradient(180deg, rgba(37,99,235,0.12), rgba(37,99,235,0.06))",
         fontWeight: 1000,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
         boxShadow: isYellow
           ? "0 14px 22px rgba(245,158,11,0.18)"
           : "0 12px 20px rgba(37,99,235,0.10)",
@@ -190,6 +200,7 @@ function ActionButton({
         alignItems: "center",
         justifyContent: "center",
         gap: 10,
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       {text}
@@ -234,7 +245,9 @@ function CollapsibleCard({
         onClick={() => setOpen((v) => !v)}
       >
         <span>{title}</span>
-        <span style={{ fontSize: 16, lineHeight: 1 }}>{open ? "−" : "+"}</span>
+        <span style={{ fontSize: 16, lineHeight: 1 }}>
+          {open ? "âˆ’" : "+"}
+        </span>
       </div>
 
       <div
@@ -355,6 +368,9 @@ export default function Account() {
     next: "",
     confirm: "",
   });
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
 
   // avatar + border style
   const [photo, setPhoto] = useState<string | null>(user?.profilePhoto ?? null);
@@ -453,9 +469,57 @@ export default function Account() {
     }
   };
 
+  const handleUpdatePassword = async () => {
+    if (!user || passwordBusy) return;
+
+    const current = String(password.current || "");
+    const next = String(password.next || "");
+    const confirm = String(password.confirm || "");
+
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (!current || !next || !confirm) {
+      setPasswordError("Please complete all password fields.");
+      return;
+    }
+    if (next.length < 8) {
+      setPasswordError("New password must be at least 8 characters.");
+      return;
+    }
+    if (next !== confirm) {
+      setPasswordError("New password and confirm password do not match.");
+      return;
+    }
+
+    try {
+      setPasswordBusy(true);
+      const res = await postJSON<{ ok: boolean; message?: string }>(
+        "/change_password.php",
+        {
+          userId: user.id,
+          currentPassword: current,
+          newPassword: next,
+          confirmPassword: confirm,
+        },
+      );
+
+      setPassword({
+        current: "",
+        next: "",
+        confirm: "",
+      });
+      setPasswordSuccess(res.message || "Password updated successfully.");
+    } catch (e: any) {
+      setPasswordError(e?.message || "Failed to update password.");
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
   if (!user) return null;
   const role = String(user.role || "").toUpperCase();
-  const hideProfileDetails = role === "ADMIN" || role === "COUNSELOR";
+  const hideProfileDetails = role === "ADMIN" || role === "STAFF";
 
   // map possible field names from your user object
   const college =
@@ -463,7 +527,7 @@ export default function Account() {
     user.college_name ??
     user.collegeName ??
     user.colleges_name ??
-    "—";
+    "â€”";
 
   const pageBg =
     "radial-gradient(1000px 400px at 20% -10%, rgba(37,99,235,0.15), transparent 60%), radial-gradient(900px 420px at 100% 0%, rgba(250,204,21,0.12), transparent 55%), #f6f7fb";
@@ -711,31 +775,40 @@ export default function Account() {
         {/* PROFILE (compact + collapsible inside) */}
         {!hideProfileDetails ? (
           <AnimatedSection open={activeTab === "profile"}>
-          <CollapsibleCard title="Personal & Academic Information" defaultOpen>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 14,
-              }}
+            <CollapsibleCard
+              title="Personal & Academic Information"
+              defaultOpen
             >
-                <CompactField label="First Name" value={profile.fname || "—"} />
-                <CompactField label="Last Name" value={profile.lname || "—"} />
-                <CompactField label="Email" value={profile.email || "—"} />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 14,
+                }}
+              >
+                <CompactField
+                  label="First Name"
+                  value={profile.fname || "â€”"}
+                />
+                <CompactField
+                  label="Last Name"
+                  value={profile.lname || "â€”"}
+                />
+                <CompactField label="Email" value={profile.email || "â€”"} />
                 <CompactField label="College" value={String(college)} />
               </div>
 
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 12,
-                color: "#64748b",
-                fontWeight: 800,
-              }}
-            >
-              Profile details are managed by the administrator.
-            </div>
-          </CollapsibleCard>
+              <div
+                style={{
+                  marginTop: 10,
+                  fontSize: 12,
+                  color: "#64748b",
+                  fontWeight: 800,
+                }}
+              >
+                Profile details are managed by the administrator.
+              </div>
+            </CollapsibleCard>
           </AnimatedSection>
         ) : null}
 
@@ -776,10 +849,37 @@ export default function Account() {
                 marginTop: 12,
               }}
             >
+              {passwordError ? (
+                <div
+                  style={{
+                    marginRight: "auto",
+                    alignSelf: "center",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#b91c1c",
+                  }}
+                >
+                  {passwordError}
+                </div>
+              ) : null}
+              {passwordSuccess ? (
+                <div
+                  style={{
+                    marginRight: "auto",
+                    alignSelf: "center",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    color: "#166534",
+                  }}
+                >
+                  {passwordSuccess}
+                </div>
+              ) : null}
               <ActionButton
-                text="Update Password"
+                text={passwordBusy ? "Updating..." : "Update Password"}
                 variant="blue"
-                onClick={() => {}}
+                onClick={handleUpdatePassword}
+                disabled={passwordBusy}
               />
             </div>
           </CollapsibleCard>

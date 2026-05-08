@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
 
 type College = { id: number; name: string };
 type AcademicYear = { id: number; name: string; isActive: boolean };
@@ -155,6 +156,7 @@ export default function YearLevels() {
   const [academicYearId, setAcademicYearId] = useState<number>(
     activeYear?.id ?? 0,
   );
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
 
   useEffect(() => {
     setItems((prev) => {
@@ -183,6 +185,7 @@ export default function YearLevels() {
       { id: nextId, name: normalizedName, collegeId, academicYearId },
       ...items,
     ]);
+    setShowSuccessNotice(true);
   };
 
   const removeItem = (id: number) => {
@@ -288,6 +291,13 @@ export default function YearLevels() {
           </tbody>
         </table>
       </div>
+
+      <SuccessNoticeModal
+        open={showSuccessNotice}
+        onClose={() => setShowSuccessNotice(false)}
+        title="Year Level Added"
+        message="The year level has been added successfully."
+      />
     </div>
   );
 }

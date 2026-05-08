@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { postJSON } from "../lib/api";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type College = { id: number; name: string };
 type Course = {
@@ -20,6 +22,7 @@ export default function Courses() {
   const [collegeId, setCollegeId] = useState(0);
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
 
   const loadAll = async () => {
     const [colRes, courseRes] = await Promise.all([
@@ -68,6 +71,7 @@ export default function Courses() {
       });
       setItems(res.courses ?? []);
       setName("");
+      setShowSuccessNotice(true);
     } catch (e: any) {
       alert(e?.message || "Failed to add course.");
     } finally {
@@ -128,7 +132,10 @@ export default function Courses() {
           </select>
 
           <button onClick={addCourse} style={primaryBtn} disabled={!canAdd}>
-            {adding ? "Adding..." : "Add"}
+            <span style={buttonContent}>
+              {adding && <LoadingSpinner size={14} />}
+              <span>{adding ? "Adding..." : "Add"}</span>
+            </span>
           </button>
         </div>
       </div>
@@ -180,6 +187,13 @@ export default function Courses() {
           </tbody>
         </table>
       </div>
+
+      <SuccessNoticeModal
+        open={showSuccessNotice}
+        onClose={() => setShowSuccessNotice(false)}
+        title="Course Added"
+        message="The course has been added successfully."
+      />
     </div>
   );
 }
@@ -214,6 +228,13 @@ const primaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const buttonContent: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+};
+
 const dangerBtn: React.CSSProperties = {
   height: 32,
   padding: "0 12px",
@@ -234,4 +255,3 @@ const td: React.CSSProperties = {
   padding: "10px 8px",
   borderTop: "1px solid var(--border)",
 };
-

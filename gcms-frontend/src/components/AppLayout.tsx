@@ -23,7 +23,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
-  LifeBuoy, // ✅ Get Support icon
+  LifeBuoy, // âœ… Get Support icon
   UserRound,
 } from "lucide-react";
 
@@ -40,7 +40,7 @@ function formatRoleLabel(role: Role): string {
     : role.replaceAll("_", " ");
 }
 
-/** ✅ Slide-in Toast (no library) */
+/** âœ… Slide-in Toast (no library) */
 function Toast({
   open,
   message,
@@ -73,7 +73,7 @@ function Toast({
           border: "rgba(34,197,94,0.35)",
           text: "#166534",
           dot: "#22c55e",
-          icon: "✓",
+          icon: "âœ“",
           title: "Success",
         }
       : tone === "error"
@@ -173,7 +173,7 @@ function Toast({
             color: palette.text,
           }}
         >
-          ✕
+          âœ•
         </button>
       </div>
     </div>
@@ -188,13 +188,13 @@ export default function AppLayout() {
 
   const [collapsed, setCollapsed] = useState(false);
 
-  // ✅ Confirm logout modal
+  // âœ… Confirm logout modal
   const [logoutOpen, setLogoutOpen] = useState(false);
 
-  // ✅ Loading state (backend-ready)
+  // âœ… Loading state (backend-ready)
   const [logoutLoading, setLogoutLoading] = useState(false);
 
-  // ✅ Toast state
+  // âœ… Toast state
   const [toast, setToast] = useState<{
     open: boolean;
     message: string;
@@ -237,7 +237,7 @@ export default function AppLayout() {
     }
   };
 
-  /** ✅ ESC closes modal, Enter confirms */
+  /** âœ… ESC closes modal, Enter confirms */
   useEffect(() => {
     if (!logoutOpen) return;
 
@@ -268,12 +268,32 @@ export default function AppLayout() {
         to: "/app/dashboard",
         roles: [
           "ADMIN",
-          "COUNSELOR",
+          "STAFF",
           "TEACHER",
           "NON_TEACHING_PERSONNEL",
           "STUDENT",
         ],
         icon: <Home size={18} />,
+      },
+
+      // STAFF + ADMIN
+      {
+        label: "Counseling",
+        to: "/app/counseling",
+        roles: ["STAFF", "ADMIN"],
+        icon: <BriefcaseMedical size={18} />,
+      },
+      {
+        label: "Student Circle",
+        to: "/app/group-sessions",
+        roles: ["STAFF", "ADMIN"],
+        icon: <UsersRound size={18} />,
+      },
+      {
+        label: "Referrals",
+        to: "/app/referrals",
+        roles: ["TEACHER", "NON_TEACHING_PERSONNEL"],
+        icon: <Share2 size={18} />,
       },
 
       // ADMIN
@@ -288,26 +308,6 @@ export default function AppLayout() {
         to: "/app/academic-structure",
         roles: ["ADMIN"],
         icon: <ClipboardList size={18} />,
-      },
-
-      // COUNSELOR + ADMIN
-      {
-        label: "Counseling Cases",
-        to: "/app/counseling",
-        roles: ["COUNSELOR", "ADMIN"],
-        icon: <BriefcaseMedical size={18} />,
-      },
-      {
-        label: "Group Sessions",
-        to: "/app/group-sessions",
-        roles: ["COUNSELOR", "ADMIN"],
-        icon: <UsersRound size={18} />,
-      },
-      {
-        label: "Referrals",
-        to: "/app/referrals",
-        roles: ["COUNSELOR", "TEACHER", "NON_TEACHING_PERSONNEL", "ADMIN"],
-        icon: <Share2 size={18} />,
       },
 
       // STUDENT
@@ -340,7 +340,7 @@ export default function AppLayout() {
         to: "/app/account",
         roles: [
           "ADMIN",
-          "COUNSELOR",
+          "STAFF",
           "TEACHER",
           "NON_TEACHING_PERSONNEL",
           "STUDENT",
@@ -357,12 +357,22 @@ export default function AppLayout() {
 
   const isActive = (to: string) => {
     if (loc.pathname === to) return true;
+    if (
+      to === "/app/counseling" &&
+      (user?.role === "ADMIN" || user?.role === "STAFF") &&
+      loc.pathname.startsWith("/app/referrals")
+    ) {
+      return true;
+    }
     if (to === "/app/dashboard")
       return loc.pathname.startsWith("/app/dashboard");
     return loc.pathname.startsWith(to + "/") || loc.pathname.startsWith(to);
   };
 
   if (!user) return <Navigate to="/login" replace />;
+
+  const sidebarDisplayName =
+    user.role === "ADMIN" ? "Guidance Counselor" : `${user.fname} ${user.lname}`;
 
   const sidebarWidth = collapsed ? 86 : 276;
   const isTeacherPortalLayout =
@@ -468,7 +478,7 @@ export default function AppLayout() {
             </div>
 
             <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 850 }}>
-              Press <b>ESC</b> to cancel • Press <b>Enter</b> to confirm
+              Press <b>ESC</b> to cancel â€¢ Press <b>Enter</b> to confirm
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -691,7 +701,7 @@ export default function AppLayout() {
           </div>
 
           <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 850 }}>
-            Press <b>ESC</b> to cancel • Press <b>Enter</b> to confirm
+            Press <b>ESC</b> to cancel â€¢ Press <b>Enter</b> to confirm
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -822,7 +832,7 @@ export default function AppLayout() {
           <div style={{ marginTop: 10, padding: "0 6px" }}>
             <div style={{ fontSize: 12, opacity: 0.75 }}>Welcome</div>
             <div style={{ fontWeight: 1000, fontSize: 14, marginTop: 2 }}>
-              {user.fname} {user.lname}
+              {sidebarDisplayName}
             </div>
             <div style={{ fontSize: 12, opacity: 0.65, marginTop: 2 }}>
               {formatRoleLabel(user.role)}

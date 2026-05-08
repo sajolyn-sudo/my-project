@@ -5,16 +5,14 @@ import App from "./App";
 import "./index.css";
 import { initPersistentStateSync } from "./lib/persistentState";
 
-async function bootstrap() {
-  await initPersistentStateSync();
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>,
+);
 
-  ReactDOM.createRoot(document.getElementById("root")!).render(
-    <React.StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </React.StrictMode>,
-  );
-}
-
-void bootstrap();
+void initPersistentStateSync().catch((error) => {
+  console.error("Persistent state sync failed during startup.", error);
+});

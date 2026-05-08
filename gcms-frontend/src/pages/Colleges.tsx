@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { postJSON } from "../lib/api";
+import SuccessNoticeModal from "../components/SuccessNoticeModal";
+import LoadingSpinner from "../components/LoadingSpinner";
 
 type College = { id: number; name: string };
 type CollegesResponse = { ok: boolean; colleges?: College[]; message?: string };
@@ -34,6 +36,7 @@ export default function Colleges() {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [showSuccessNotice, setShowSuccessNotice] = useState(false);
 
   useEffect(() => save(colleges), [colleges]);
 
@@ -68,6 +71,7 @@ export default function Colleges() {
       });
       setColleges(res.colleges ?? []);
       setName("");
+      setShowSuccessNotice(true);
     } catch (e: any) {
       alert(e?.message || "Failed to add college.");
     } finally {
@@ -104,7 +108,10 @@ export default function Colleges() {
             style={input}
           />
           <button onClick={addCollege} style={primaryBtn} disabled={adding}>
-            {adding ? "Adding..." : "Add"}
+            <span style={buttonContent}>
+              {adding && <LoadingSpinner size={14} />}
+              <span>{adding ? "Adding..." : "Add"}</span>
+            </span>
           </button>
         </div>
       </div>
@@ -158,6 +165,13 @@ export default function Colleges() {
           Tip: Add Colleges first, then Academic Years, then Year Levels.
         </div>
       </div>
+
+      <SuccessNoticeModal
+        open={showSuccessNotice}
+        onClose={() => setShowSuccessNotice(false)}
+        title="College Added"
+        message="The college has been added successfully."
+      />
     </div>
   );
 }
@@ -190,6 +204,13 @@ const primaryBtn: React.CSSProperties = {
   color: "white",
   fontWeight: 700,
   cursor: "pointer",
+};
+
+const buttonContent: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
 };
 
 const dangerBtn: React.CSSProperties = {

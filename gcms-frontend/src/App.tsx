@@ -43,7 +43,7 @@ function DashboardRouter() {
   const user = useAuthStore((s) => s.user);
 
   if (user?.role === "STUDENT") return <StudentDashboard />;
-  if (user?.role === "COUNSELOR") return <CounselorDashboard />;
+  if (user?.role === "STAFF") return <CounselorDashboard />;
   if (user?.role === "TEACHER" || user?.role === "NON_TEACHING_PERSONNEL") {
     return <TeacherDashboard />;
   }
@@ -63,6 +63,17 @@ function AppHomeRedirect() {
   return <Navigate to="dashboard" replace />;
 }
 
+function ReferralsRoute() {
+  const user = useAuthStore((s) => s.user);
+  const role = String(user?.role || "").toUpperCase();
+
+  if (role === "ADMIN" || role === "STAFF") {
+    return <Navigate to="/app/counseling?tab=referrals" replace />;
+  }
+
+  return <Referrals />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -77,7 +88,7 @@ export default function App() {
           <ProtectedRoute
             allowedRoles={[
               "ADMIN",
-              "COUNSELOR",
+              "STAFF",
               "TEACHER",
               "NON_TEACHING_PERSONNEL",
               "STUDENT",
@@ -112,7 +123,7 @@ export default function App() {
             <ProtectedRoute
               allowedRoles={[
                 "ADMIN",
-                "COUNSELOR",
+                "STAFF",
                 "TEACHER",
                 "NON_TEACHING_PERSONNEL",
                 "STUDENT",
@@ -151,7 +162,7 @@ export default function App() {
         <Route
           path="counseling"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
               <Counseling />
             </ProtectedRoute>
           }
@@ -159,7 +170,7 @@ export default function App() {
         <Route
           path="counseling/:id"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
               <CounselingView />
             </ProtectedRoute>
           }
@@ -168,7 +179,7 @@ export default function App() {
         <Route
           path="group-sessions"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
               <GroupSessions />
             </ProtectedRoute>
           }
@@ -176,7 +187,7 @@ export default function App() {
         <Route
           path="group-sessions/:id"
           element={
-            <ProtectedRoute allowedRoles={["COUNSELOR", "ADMIN"]}>
+            <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
               <GroupSessionView />
             </ProtectedRoute>
           }
@@ -187,13 +198,13 @@ export default function App() {
           element={
             <ProtectedRoute
               allowedRoles={[
-                "COUNSELOR",
+                "STAFF",
                 "TEACHER",
                 "NON_TEACHING_PERSONNEL",
                 "ADMIN",
               ]}
             >
-              <Referrals />
+              <ReferralsRoute />
             </ProtectedRoute>
           }
         />
@@ -202,7 +213,7 @@ export default function App() {
           element={
             <ProtectedRoute
               allowedRoles={[
-                "COUNSELOR",
+                "STAFF",
                 "TEACHER",
                 "NON_TEACHING_PERSONNEL",
                 "ADMIN",
