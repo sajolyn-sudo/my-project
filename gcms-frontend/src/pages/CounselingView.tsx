@@ -53,7 +53,8 @@ type YearLevel = {
 type CounselingCase = {
   id: number;
   studentId: number;
-  STAFFUserId?: number;
+  STAFFUserId?: number | null;
+  counselorUserId?: number | null;
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
@@ -64,6 +65,8 @@ type CounselingCase = {
   notes?: string;
   actionTaken?: string;
   followUpDate?: string;
+  timeFinished?: string | null;
+  recommendation?: string;
   createdAt: string;
 };
 
@@ -138,6 +141,25 @@ function mergeCounselingCase(
       optionalText(
         (item as CounselingCase & { followUpDate?: unknown }).followUpDate,
       ) ?? cached?.followUpDate,
+    timeFinished:
+      optionalText(
+        (
+          item as CounselingCase & {
+            timeFinished?: unknown;
+            time_finished?: unknown;
+          }
+        ).timeFinished ??
+          (
+            item as CounselingCase & {
+              timeFinished?: unknown;
+              time_finished?: unknown;
+            }
+          ).time_finished,
+      ) ?? cached?.timeFinished,
+    recommendation:
+      optionalText(
+        (item as CounselingCase & { recommendation?: unknown }).recommendation,
+      ) ?? cached?.recommendation,
   };
 }
 
@@ -174,13 +196,16 @@ export default function CounselingView() {
   const location = useLocation();
   const { id } = useParams();
   const caseId = Number(id);
-  const isMediationView = useMemo(
-    () => new URLSearchParams(location.search).get("tab") === "mediation",
-    [location.search],
-  );
+  const isMediationView = false;
 
   const listHref = useMemo(
-    () => `/app/counseling${location.search || ""}`,
+    () => {
+      const params = new URLSearchParams(location.search);
+      if (params.get("from") === "reports") return "/app/reports";
+      if (params.get("tab") === "mediation") params.delete("tab");
+      const query = params.toString();
+      return `/app/counseling${query ? `?${query}` : ""}`;
+    },
     [location.search],
   );
 
@@ -196,6 +221,10 @@ export default function CounselingView() {
     cases.find((c) => c.id === caseId),
   );
   const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    localStorage.removeItem(MEDIATION_KEY);
+  }, []);
 
   useEffect(() => {
     if (isMediationView) {
@@ -740,6 +769,16 @@ export default function CounselingView() {
   const studentName = student
     ? `${student.fname} ${student.mname ? `${student.mname} ` : ""}${student.lname}`
     : "Unknown Student";
+  const studentCourseName = student ? getCourseName(userCourseId(student)) : "-";
+  const courseYearText =
+    [studentCourseName !== "-" ? studentCourseName : "", yl?.name ?? ""]
+      .filter(Boolean)
+      .join(" / ") || "-";
+  const counselorId = found.STAFFUserId ?? found.counselorUserId ?? null;
+  const counselor = counselorId
+    ? users.find((item) => item.id === counselorId)
+    : undefined;
+  const counselorName = counselor ? getUserFullName(counselor) : "To be assigned";
 
   return (
     <div style={shell}>
@@ -804,8 +843,28 @@ export default function CounselingView() {
               <GraduationCap size={16} />
             </span>
             <div>
-              <div style={infoChipLabel}>Year Level</div>
-              <div style={infoChipValue}>{yl?.name ?? "-"}</div>
+              <div style={infoChipLabel}>Course & Year</div>
+              <div style={infoChipValue}>{courseYearText}</div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <Users size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Counselor</div>
+              <div style={infoChipValue}>{counselorName}</div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <ClipboardList size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Session No.</div>
+              <div style={infoChipValue}>#{found.id}</div>
             </div>
           </div>
 
@@ -824,8 +883,22 @@ export default function CounselingView() {
               <Clock3 size={16} />
             </span>
             <div>
-              <div style={infoChipLabel}>Time Visited</div>
+              <div style={infoChipLabel}>Time Start</div>
               <div style={infoChipValue}>{formatCaseTime(found.time)}</div>
+            </div>
+          </div>
+
+          <div style={infoChip}>
+            <span style={infoChipIcon}>
+              <Clock3 size={16} />
+            </span>
+            <div>
+              <div style={infoChipLabel}>Time Finished</div>
+              <div style={infoChipValue}>
+                {found.timeFinished
+                  ? formatCaseTime(found.timeFinished)
+                  : "Not set"}
+              </div>
             </div>
           </div>
 
@@ -878,26 +951,42 @@ export default function CounselingView() {
           <div style={{ ...metaCard, gridColumn: "1 / -1" }}>
             <div style={metaHeader}>
               <ClipboardList size={16} />
-              Reason for counseling
+              Background
             </div>
-            <div style={metaValue}>{found.reason ?? "No reason added yet."}</div>
+            <div style={metaValue}>
+              {found.reason ?? "No background recorded yet."}
+            </div>
           </div>
 
           <div style={{ ...metaCard, gridColumn: "1 / -1" }}>
             <div style={metaHeader}>
               <FileText size={16} />
-              Notes
+              Behavioral Observations and Relevant History
             </div>
-            <div style={metaValue}>{found.notes ?? "No notes yet."}</div>
+            <div style={metaValue}>
+              {found.notes ??
+                "No behavioral observations or relevant history recorded yet."}
+            </div>
           </div>
 
           <div style={{ ...metaCard, gridColumn: "1 / -1" }}>
             <div style={metaHeader}>
               <NotebookPen size={16} />
-              Action taken
+              Intervention
             </div>
             <div style={metaValue}>
-              {found.actionTaken ?? "No action taken recorded yet."}
+              {found.actionTaken ?? "No intervention recorded yet."}
+            </div>
+          </div>
+
+          <div style={{ ...metaCard, gridColumn: "1 / -1" }}>
+            <div style={metaHeader}>
+              <BookOpen size={16} />
+              Assignment / Recommendation
+            </div>
+            <div style={metaValue}>
+              {found.recommendation ??
+                "No assignment or recommendation recorded yet."}
             </div>
           </div>
         </div>

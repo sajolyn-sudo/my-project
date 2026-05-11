@@ -91,6 +91,11 @@ export default function useStudentPortalSync() {
             mname: user.mname,
             lname: user.lname,
             email: user.email,
+            collegeId: user.collegeId,
+            courseId: user.courseId,
+            courseName: user.courseName,
+            yearLevelId: user.yearLevelId,
+            section: user.section,
           }));
 
           setUsers(() => legacyUsers);
@@ -108,8 +113,9 @@ export default function useStudentPortalSync() {
             counselor_user_id:
               (item as { STAFFUserId?: number }).STAFFUserId ??
               (item as { counselorUserId?: number }).counselorUserId ??
-              0,
+              null,
             counseling_date: item.date,
+            counseling_time: item.time ?? undefined,
             status: toLegacyCounselingStatus(item.status),
             reason:
               typeof (item as { reason?: unknown }).reason === "string"

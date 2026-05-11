@@ -7,7 +7,8 @@ import {
   Navigate,
 } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
-import type { Role } from "../types/auth";
+import { canViewReports } from "../lib/staffPermissions";
+import type { AuthUser, Role } from "../types/auth";
 
 import logo from "../assets/logo.png";
 import Modal from "../components/Modal";
@@ -16,14 +17,13 @@ import {
   Home,
   Users as UsersIcon,
   BriefcaseMedical,
-  UsersRound,
   Share2,
   ClipboardList,
   CalendarDays,
+  FileText,
   PanelLeftClose,
   PanelLeftOpen,
   LogOut,
-  LifeBuoy, // âœ… Get Support icon
   UserRound,
 } from "lucide-react";
 
@@ -32,6 +32,7 @@ type NavItem = {
   to: string;
   roles: Role[];
   icon: React.ReactNode;
+  visible?: (user: AuthUser) => boolean;
 };
 
 function formatRoleLabel(role: Role): string {
@@ -284,18 +285,18 @@ export default function AppLayout() {
         icon: <BriefcaseMedical size={18} />,
       },
       {
-        label: "Student Circle",
-        to: "/app/group-sessions",
-        roles: ["STAFF", "ADMIN"],
-        icon: <UsersRound size={18} />,
-      },
-      {
         label: "Referrals",
         to: "/app/referrals",
-        roles: ["TEACHER", "NON_TEACHING_PERSONNEL"],
+        roles: ["STAFF", "ADMIN", "TEACHER", "NON_TEACHING_PERSONNEL"],
         icon: <Share2 size={18} />,
       },
-
+      {
+        label: "Reports",
+        to: "/app/reports",
+        roles: ["STAFF", "ADMIN"],
+        icon: <FileText size={18} />,
+        visible: canViewReports,
+      },
       // ADMIN
       {
         label: "User Management",
@@ -324,18 +325,6 @@ export default function AppLayout() {
         icon: <Share2 size={18} />,
       },
       {
-        label: "Survey",
-        to: "/app/survey",
-        roles: ["STUDENT"],
-        icon: <ClipboardList size={18} />,
-      },
-      {
-        label: "Get Support",
-        to: "/app/get-support",
-        roles: ["STUDENT"],
-        icon: <LifeBuoy size={18} />,
-      },
-      {
         label: "Account",
         to: "/app/account",
         roles: [
@@ -352,18 +341,13 @@ export default function AppLayout() {
   );
 
   const visibleNav = user
-    ? navItems.filter((n) => n.roles.includes(user.role))
+    ? navItems.filter(
+        (n) => n.roles.includes(user.role) && (n.visible ? n.visible(user) : true),
+      )
     : [];
 
   const isActive = (to: string) => {
     if (loc.pathname === to) return true;
-    if (
-      to === "/app/counseling" &&
-      (user?.role === "ADMIN" || user?.role === "STAFF") &&
-      loc.pathname.startsWith("/app/referrals")
-    ) {
-      return true;
-    }
     if (to === "/app/dashboard")
       return loc.pathname.startsWith("/app/dashboard");
     return loc.pathname.startsWith(to + "/") || loc.pathname.startsWith(to);

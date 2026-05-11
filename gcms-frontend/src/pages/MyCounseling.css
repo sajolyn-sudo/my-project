@@ -3,3 +3,22 @@
     grid-template-columns: 1fr !important;
   }
 }
+
+.clickableSummaryCard {
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.clickableSummaryCard:hover {
+  border-color: rgba(15, 23, 42, 0.18) !important;
+  box-shadow: 0 22px 56px rgba(2, 6, 23, 0.14) !important;
+  transform: translateY(-1px);
+}
+
+.clickableSummaryCard:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.28);
+  outline-offset: 3px;
+}

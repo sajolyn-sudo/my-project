@@ -16,7 +16,7 @@ import {
 import Modal from "../components/Modal";
 import DropdownSelect from "../components/DropdownSelect";
 import FormattedDateInput from "../components/FormattedDateInput";
-import ReferralsPage from "./Referrals";
+import GroupSessions from "./GroupSessions";
 import { useAuthStore } from "../store/authStore";
 import {
   createCounselingCase,
@@ -26,6 +26,10 @@ import {
 } from "../lib/entitiesApi";
 import { postJSON } from "../lib/api";
 import { matchesSearchPrefix } from "../lib/searchPrefix";
+import {
+  canUseGroupCounselling,
+  isCarissaEstapiaStaff,
+} from "../lib/staffPermissions";
 
 type Role =
   | "ADMIN"
@@ -63,7 +67,8 @@ type CoursesResponse = { ok: boolean; courses?: Course[] };
 type CounselingCase = {
   id: number;
   studentId: number;
-  STAFFUserId?: number;
+  STAFFUserId?: number | null;
+  counselorUserId?: number | null;
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
@@ -74,6 +79,11 @@ type CounselingCase = {
   notes?: string;
   actionTaken?: string;
   followUpDate?: string;
+  timeFinished?: string | null;
+  recommendation?: string;
+  studentRequest?: boolean | number | string | null;
+  createdByUserId?: number | null;
+  createdByRole?: string | null;
   createdAt: string;
 };
 
@@ -131,8 +141,7 @@ type HistoryTypeFilter = "session" | "mediation" | "referral" | null;
 type CounselingTab =
   | "sessions"
   | "mediation"
-  | "referrals"
-  | "history";
+  | "group-sessions";
 
 const CASES_KEY = "gcms_mock_counseling_cases_v2";
 const MEDIATION_KEY = "gcms_mock_mediation_cases_v1";
@@ -142,30 +151,6 @@ const COLLEGES_KEY = "gcms_mock_colleges_v1";
 const YEARS_KEY = "gcms_mock_academic_years_v1";
 const YL_KEY = "gcms_mock_year_levels_v1";
 const HISTORY_PAGE_SIZE = 10;
-
-const HISTORY_TYPE_META = {
-  session: {
-    label: "Sessions",
-    color: "#1e3a8a",
-    background: "rgba(239,246,255,0.92)",
-    border: "rgba(59,130,246,0.22)",
-    icon: CalendarDays,
-  },
-  mediation: {
-    label: "Mediation",
-    color: "#991b1b",
-    background: "rgba(254,242,242,0.92)",
-    border: "rgba(239,68,68,0.22)",
-    icon: Handshake,
-  },
-  referral: {
-    label: "Referrals",
-    color: "#111827",
-    background: "rgba(248,250,252,0.92)",
-    border: "rgba(15,23,42,0.14)",
-    icon: FileText,
-  },
-} as const;
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -192,9 +177,7 @@ function parseCounselingTab(raw: string | null): CounselingTab {
 
   if (
     tab === "sessions" ||
-    tab === "mediation" ||
-    tab === "referrals" ||
-    tab === "history"
+    tab === "group-sessions"
   ) {
     return tab;
   }
@@ -247,6 +230,17 @@ function optionalText(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function truthyFlag(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    return ["1", "true", "yes", "student", "session"].includes(
+      value.trim().toLowerCase(),
+    );
+  }
+  return false;
+}
+
 function sanitizeIdList(values: number[]) {
   return Array.from(
     new Set(
@@ -286,6 +280,23 @@ function mergeCounselingCases(
         optionalText(
           (item as CounselingCase & { followUpDate?: unknown }).followUpDate,
         ) ?? cached?.followUpDate,
+      timeFinished:
+        optionalText(
+          (item as CounselingCase & { timeFinished?: unknown }).timeFinished,
+        ) ?? cached?.timeFinished,
+      recommendation:
+        optionalText(
+          (item as CounselingCase & { recommendation?: unknown }).recommendation,
+        ) ?? cached?.recommendation,
+      studentRequest:
+        (item as CounselingCase & { studentRequest?: unknown }).studentRequest ??
+        cached?.studentRequest,
+      createdByUserId:
+        (item as CounselingCase & { createdByUserId?: number | null })
+          .createdByUserId ?? cached?.createdByUserId,
+      createdByRole:
+        (item as CounselingCase & { createdByRole?: string | null })
+          .createdByRole ?? cached?.createdByRole,
     };
   });
 }
@@ -344,8 +355,8 @@ function seedCompletedHistoryCases(
 
 function seedMediationCases(
   items: MediationCase[],
-  students: User[],
-  activeYearId: number,
+  _students: User[],
+  _activeYearId: number,
 ): MediationCase[] {
   if (items.length > 0) {
     return items.map((item) => ({
@@ -360,39 +371,7 @@ function seedMediationCases(
     }));
   }
 
-  const samplePairs = [
-    students.slice(0, 2).map((student) => student.id),
-    students.slice(1, 3).map((student) => student.id),
-  ]
-    .map(sanitizeIdList)
-    .filter((ids) => ids.length >= 2);
-
-  return samplePairs.map((participantIds, index) => ({
-    id: index + 1,
-    title: index === 0 ? "Peer Miscommunication" : "Group Project Dispute",
-    participantIds,
-    academicYearId: activeYearId,
-    STAFFUserId: 2,
-    date: index === 0 ? "2026-03-12" : "2026-03-18",
-    status: index === 0 ? "In Progress" : "Open",
-    issueDescription:
-      index === 0
-        ? "Students reported repeated misunderstandings after a classroom disagreement that escalated online."
-        : "Participants requested mediation after conflict over missed tasks and communication in a shared project.",
-    agreementsMade:
-      index === 0
-        ? "Both students agreed to avoid public confrontation and bring future concerns directly to the guidance office."
-        : undefined,
-    outcome:
-      index === 0
-        ? "Follow-up mediation scheduled to review communication progress."
-        : undefined,
-    remarks:
-      index === 0
-        ? "Initial session was cooperative and both participants were willing to continue the process."
-        : "Awaiting the first joint mediation session.",
-    createdAt: index === 0 ? "2026-03-12" : "2026-03-18",
-  }));
+  return [];
 }
 
 function formatCaseDate(value: string) {
@@ -461,15 +440,15 @@ function parseSortTimestamp(
 }
 
 function compareNewestCounselingCases(a: CounselingCase, b: CounselingCase): number {
-  const byCreatedAt =
-    parseSortTimestamp(b.createdAt, b.time, b.date) -
-    parseSortTimestamp(a.createdAt, a.time, a.date);
-  if (byCreatedAt !== 0) return byCreatedAt;
-
   const bySchedule =
     parseSortTimestamp(b.date, b.time, b.createdAt) -
     parseSortTimestamp(a.date, a.time, a.createdAt);
   if (bySchedule !== 0) return bySchedule;
+
+  const byCreatedAt =
+    parseSortTimestamp(b.createdAt, b.time, b.date) -
+    parseSortTimestamp(a.createdAt, a.time, a.date);
+  if (byCreatedAt !== 0) return byCreatedAt;
 
   return b.id - a.id;
 }
@@ -501,7 +480,7 @@ function isCompletionReady(caseLike: {
 }
 
 function completionAlertMessage() {
-  return "Fill in Reason for counseling, Notes, and Action taken before marking this session as Completed.";
+  return "Fill in Background, Behavioral Observations, and Intervention before marking this session as Completed.";
 }
 
 function isMediationResolutionReady(caseLike: {
@@ -547,7 +526,7 @@ function normalizeReferral(item: {
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-  referredDate: string;
+  referredDate?: string | null;
   referredTime?: string | null;
   reason: string;
   notes?: string;
@@ -567,7 +546,7 @@ function normalizeReferrals(items: Array<{
   academicYearId: number;
   collegeId: number;
   yearLevelId: number;
-  referredDate: string;
+  referredDate?: string | null;
   referredTime?: string | null;
   reason: string;
   notes?: string;
@@ -760,9 +739,7 @@ const COUNSELING_TABS: Array<{
   icon: React.ComponentType<{ size?: number }>;
 }> = [
   { id: "sessions", label: "Sessions", icon: CalendarDays },
-  { id: "mediation", label: "Mediation", icon: Handshake },
-  { id: "referrals", label: "Referrals", icon: FileText },
-  { id: "history", label: "History", icon: History },
+  { id: "group-sessions", label: "Group Counselling", icon: Users },
 ];
 
 export default function Counseling() {
@@ -803,8 +780,21 @@ export default function Counseling() {
       users.filter(
         (u) =>
           u.role === "STUDENT" &&
-          !Boolean((u as User & { isArchived?: boolean }).isArchived),
+          !(u as User & { isArchived?: boolean }).isArchived,
       ),
+    [users],
+  );
+  const staffUsers = useMemo(
+    () =>
+      users.filter((u) => {
+        const role = String(u.role || "").trim().toUpperCase();
+        return (
+          role === "ADMIN" ||
+          role === "STAFF" ||
+          role === "COUNSELOR" ||
+          role === "NON_TEACHING_PERSONNEL"
+        );
+      }),
     [users],
   );
 
@@ -832,15 +822,15 @@ export default function Counseling() {
     ),
   );
   const [mediationCases, setMediationCases] = useState<MediationCase[]>(() =>
-    seedMediationCases(
-      load<MediationCase[]>(MEDIATION_KEY, []),
-      students,
-      activeYearId,
-    ),
+    [],
   );
   const [referrals, setReferrals] = useState<Referral[]>(() =>
     normalizeReferrals(load<any[]>(REF_KEY, [])),
   );
+
+  useEffect(() => {
+    localStorage.removeItem(MEDIATION_KEY);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -936,8 +926,20 @@ export default function Counseling() {
   const [activeTab, setActiveTab] = useState<CounselingTab>(() =>
     parseCounselingTab(searchParams.get("tab")),
   );
-  const tabHasFilters = activeTab === "sessions" || activeTab === "history";
-  const showYearLevelFilter = activeTab === "history";
+  const [showSessionHistory, setShowSessionHistory] = useState<boolean>(() =>
+    searchParams.get("tab") === "history" ||
+    searchParams.get("sessionHistory") === "1",
+  );
+  const canAccessGroupCounselling = canUseGroupCounselling(authUser);
+  const visibleCounselingTabs = useMemo(
+    () =>
+      COUNSELING_TABS.filter(
+        (tab) => tab.id !== "group-sessions" || canAccessGroupCounselling,
+      ),
+    [canAccessGroupCounselling],
+  );
+  const tabHasFilters = activeTab === "sessions";
+  const showYearLevelFilter = activeTab === "sessions" && showSessionHistory;
   const [showFilters, setShowFilters] = useState<boolean>(() => {
     return (
       parsePositiveInt(searchParams.get("collegeId")) > 0 ||
@@ -964,15 +966,33 @@ export default function Counseling() {
       next.set("yearLevelId", String(filterYearLevelId));
     }
     next.set("tab", activeTab);
+    if (activeTab === "sessions" && showSessionHistory) {
+      next.set("sessionHistory", "1");
+    }
     setSearchParams(next, { replace: true });
   }, [
     filterCollegeId,
     filterCourseId,
     filterYearLevelId,
     showYearLevelFilter,
+    showSessionHistory,
     activeTab,
     setSearchParams,
   ]);
+
+  useEffect(() => {
+    if (activeTab === "group-sessions" && !canAccessGroupCounselling) {
+      setActiveTab("sessions");
+    }
+  }, [activeTab, canAccessGroupCounselling]);
+
+  useEffect(() => {
+    if (activeTab === "sessions") return;
+    setShowSessionHistory(false);
+    setHistorySearch("");
+    setHistoryTypeFilter(null);
+    setHistoryPage(1);
+  }, [activeTab]);
 
   useEffect(() => {
     if (tabHasFilters) return;
@@ -1042,10 +1062,30 @@ export default function Counseling() {
     });
   }, [students, modalCollegeId, modalYearLevelId, modalCourseId, modalSection]);
   const [studentId, setStudentId] = useState<number>(filteredStudents[0]?.id ?? 0);
+  const [additionalStudentIds, setAdditionalStudentIds] = useState<number[]>([]);
   const selectedModalStudent = useMemo(
     () => students.find((student) => student.id === studentId),
     [students, studentId],
   );
+  const selectedSessionStudentIds = useMemo(
+    () => sanitizeIdList([studentId, ...additionalStudentIds]),
+    [studentId, additionalStudentIds],
+  );
+  const availableAdditionalStudents = useMemo(
+    () =>
+      filteredStudents.filter(
+        (student) => !selectedSessionStudentIds.includes(student.id),
+      ),
+    [filteredStudents, selectedSessionStudentIds],
+  );
+  const defaultStaffUserId = useMemo(
+    () =>
+      staffUsers.find((staff) => staff.id === authUser?.id)?.id ??
+      staffUsers[0]?.id ??
+      0,
+    [authUser?.id, staffUsers],
+  );
+  const [staffUserId, setStaffUserId] = useState<number>(defaultStaffUserId);
   const resolvedModalCollegeId = modalCollegeId || selectedModalStudent?.collegeId || 0;
   const resolvedModalYearLevelId = modalYearLevelId || selectedModalStudent?.yearLevelId || 0;
   const [date, setDate] = useState("");
@@ -1055,6 +1095,15 @@ export default function Counseling() {
   const [notes, setNotes] = useState("");
   const [actionTaken, setActionTaken] = useState("");
   const [followUpDate, setFollowUpDate] = useState("");
+  const [timeFinished, setTimeFinished] = useState("");
+  const [recommendation, setRecommendation] = useState("");
+  const getSessionStudentAcademicValues = (id: number) => {
+    const student = students.find((item) => item.id === id);
+    return {
+      collegeId: student?.collegeId || modalCollegeId || 0,
+      yearLevelId: student?.yearLevelId || modalYearLevelId || 0,
+    };
+  };
   const pageContentRef = useRef<HTMLDivElement | null>(null);
   const [statusOverlayFrame, setStatusOverlayFrame] = useState({
     left: 16,
@@ -1062,15 +1111,26 @@ export default function Counseling() {
     top: 16,
   });
   const missingCreateSessionFields: string[] = [];
-  if (!studentId) missingCreateSessionFields.push("Student Name");
+  if (selectedSessionStudentIds.length === 0) {
+    missingCreateSessionFields.push("Student Name");
+  }
+  if (!staffUserId) missingCreateSessionFields.push("Staff");
   if (!date) missingCreateSessionFields.push("Date");
   if (!optionalText(time)) missingCreateSessionFields.push("Time");
   if (filteredStudents.length === 0) {
     missingCreateSessionFields.length = 0;
     missingCreateSessionFields.push("an available student");
-  } else if (studentId && !resolvedModalCollegeId) {
+  } else if (
+    selectedSessionStudentIds.some(
+      (id) => !getSessionStudentAcademicValues(id).collegeId,
+    )
+  ) {
     missingCreateSessionFields.push("selected student's college");
-  } else if (studentId && !resolvedModalYearLevelId) {
+  } else if (
+    selectedSessionStudentIds.some(
+      (id) => !getSessionStudentAcademicValues(id).yearLevelId,
+    )
+  ) {
     missingCreateSessionFields.push("selected student's year level");
   }
   const [historySearch, setHistorySearch] = useState("");
@@ -1203,6 +1263,9 @@ export default function Counseling() {
   const mediationParticipantsFilteredStudents = useMemo(() => {
     return students.filter((student) => {
       const courseId = userCourseId(student);
+      const courseName = courseId
+        ? courses.find((course) => course.id === courseId)?.name ?? "-"
+        : "-";
       const fullName =
         `${student.fname} ${student.mname ? `${student.mname} ` : ""}${student.lname}`
           .trim()
@@ -1217,7 +1280,7 @@ export default function Counseling() {
             mediationParticipantsSearchNeedle,
             fullName,
             student.email,
-            labelCourse(courseId),
+            courseName,
           );
 
       return (
@@ -1237,6 +1300,7 @@ export default function Counseling() {
     mediationParticipantsFilterCourseId,
     mediationParticipantsFilterYearLevelId,
     mediationParticipantsSearchNeedle,
+    courses,
   ]);
   const selectedMediationParticipants = useMemo(
     () =>
@@ -1395,8 +1459,13 @@ export default function Counseling() {
 
   // keep studentId valid when modal filtered list changes
   useEffect(() => {
-    if (filteredStudents.some((item) => item.id === studentId)) return;
-    setStudentId(0);
+    const filteredIds = new Set(filteredStudents.map((item) => item.id));
+    if (studentId && !filteredIds.has(studentId)) setStudentId(0);
+    setAdditionalStudentIds((current) =>
+      sanitizeIdList(current).filter(
+        (id) => filteredIds.has(id) && id !== studentId,
+      ),
+    );
   }, [filteredStudents, studentId]);
 
   const filterQuery = useMemo(() => {
@@ -1438,7 +1507,7 @@ export default function Counseling() {
     () => filteredCases.filter((c) => c.status === "Completed"),
     [filteredCases],
   );
-  const showCompletedHistory = activeTab === "history";
+  const showCompletedHistory = activeTab === "sessions" && showSessionHistory;
   const historySearchNeedle = historySearch.trim().toLowerCase();
   const displayCases = useMemo(() => {
     const baseCases = showCompletedHistory ? completedCases : activeCases;
@@ -1463,6 +1532,40 @@ export default function Counseling() {
     const s = students.find((x) => x.id === id);
     if (!s) return "Unknown";
     return `${s.fname} ${s.mname ? `${s.mname} ` : ""}${s.lname}`.trim();
+  }
+
+  function getSessionKind(item: CounselingCase) {
+    const record = item as CounselingCase & {
+      student_request?: unknown;
+      requestedByStudent?: unknown;
+      requested_by_student?: unknown;
+    };
+    const createdByRole = String(item.createdByRole || "").trim().toUpperCase();
+
+    if (
+      createdByRole === "STUDENT" ||
+      truthyFlag(record.studentRequest) ||
+      truthyFlag(record.student_request) ||
+      truthyFlag(record.requestedByStudent) ||
+      truthyFlag(record.requested_by_student)
+    ) {
+      return "Session";
+    }
+
+    const creator = users.find((user) => user.id === item.createdByUserId);
+    if (creator?.role === "ADMIN" || isCarissaEstapiaStaff(creator)) {
+      return "Walk In";
+    }
+
+    const assignedStaff = users.find(
+      (user) => user.id === (item.STAFFUserId ?? item.counselorUserId ?? 0),
+    );
+    if (assignedStaff?.role === "ADMIN" || isCarissaEstapiaStaff(assignedStaff)) {
+      return "Walk In";
+    }
+
+    if (!item.STAFFUserId && !item.counselorUserId) return "Session";
+    return "Walk In";
   }
 
   const mediationSearchNeedle = mediationSearch.trim().toLowerCase();
@@ -1578,10 +1681,6 @@ export default function Counseling() {
     if (!sid) return "-";
     return courses.find((c) => c.id === sid)?.name ?? "-";
   };
-  const getCourseNameByCourseId = (courseId?: number) => {
-    if (!courseId) return "-";
-    return courses.find((course) => course.id === courseId)?.name ?? "-";
-  };
   const matchesStudentFilters = (student?: User) => {
     if (!student) return true;
     const courseId = userCourseId(student);
@@ -1593,15 +1692,6 @@ export default function Counseling() {
         : true) &&
       (filterCourseId ? courseId === 0 || courseId === filterCourseId : true)
     );
-  };
-  const summarizeParticipantNames = (participantIds: number[]) => {
-    const names = sanitizeIdList(participantIds)
-      .map((id) => getStudentName(id))
-      .filter((name) => name !== "Unknown");
-
-    if (names.length === 0) return "No participants";
-    if (names.length <= 2) return names.join(", ");
-    return `${names[0]}, ${names[1]} +${names.length - 2} more`;
   };
   const historyItems = useMemo<HistoryItem[]>(() => {
     const sessionItems = completedCases.map((item) => {
@@ -1637,87 +1727,6 @@ export default function Counseling() {
       };
     });
 
-    const mediationItems = mediationCases
-      .filter((item) => item.status === "Resolved")
-      .filter((item) => item.academicYearId === selectedAyId)
-      .filter((item) => {
-        if (!filterCollegeId && !filterCourseId && !filterYearLevelId) return true;
-        return sanitizeIdList(item.participantIds)
-          .map((id) => students.find((student) => student.id === id))
-          .some((student) => matchesStudentFilters(student));
-      })
-      .map((item) => {
-        const participants = sanitizeIdList(item.participantIds)
-          .map((id) => students.find((student) => student.id === id))
-          .filter(Boolean) as User[];
-        const collegeIds = Array.from(
-          new Set(participants.map((student) => student.collegeId).filter(Boolean)),
-        ) as number[];
-        const yearLevelIds = Array.from(
-          new Set(participants.map((student) => student.yearLevelId).filter(Boolean)),
-        ) as number[];
-        const courseIds = Array.from(
-          new Set(participants.map((student) => userCourseId(student)).filter(Boolean)),
-        ) as number[];
-
-        return {
-          id: `mediation-${item.id}`,
-          type: "mediation" as const,
-          label: "Mediation",
-          studentText: summarizeParticipantNames(item.participantIds),
-          collegeTitle:
-            collegeIds.length === 1
-              ? getCollegeName(collegeIds[0])
-              : collegeIds.length > 1
-                ? "Multiple colleges"
-                : "-",
-          collegeSubtitle:
-            yearLevelIds.length === 1
-              ? `${getAcademicYearName(item.academicYearId)} / ${getYearLevelName(yearLevelIds[0])}`
-              : `${getAcademicYearName(item.academicYearId)} / Multiple year levels`,
-          courseText:
-            courseIds.length === 1
-              ? getCourseNameByCourseId(courseIds[0])
-              : courseIds.length > 1
-                ? "Multiple courses"
-                : "-",
-          timeText: formatHistoryTime(undefined, item.id),
-          dateValue: item.resolvedAt || item.date,
-          statusText: item.status,
-          viewTo: `/app/counseling/${item.id}?tab=mediation`,
-          searchText: [
-            "mediation mediations",
-            "case type mediation",
-            "Mediation",
-            item.title,
-            summarizeParticipantNames(item.participantIds),
-            collegeIds.length === 1
-              ? getCollegeName(collegeIds[0])
-              : collegeIds.length > 1
-                ? "Multiple colleges"
-                : "-",
-            yearLevelIds.length === 1
-              ? `${getAcademicYearName(item.academicYearId)} / ${getYearLevelName(yearLevelIds[0])}`
-              : `${getAcademicYearName(item.academicYearId)} / Multiple year levels`,
-            courseIds.length === 1
-              ? getCourseNameByCourseId(courseIds[0])
-              : courseIds.length > 1
-                ? "Multiple courses"
-                : "-",
-            participants.map((student) => student.email).join(" "),
-            item.date,
-            item.resolvedAt ?? "",
-          ]
-            .join(" ")
-            .toLowerCase(),
-          sortTimestamp: parseSortTimestamp(
-            item.createdAt,
-            undefined,
-            item.resolvedAt || item.date,
-          ),
-        };
-      });
-
     const referralItems = referrals
       .filter((item) => item.status === "Complete")
       .filter((item) => item.academicYearId === selectedAyId)
@@ -1744,7 +1753,7 @@ export default function Counseling() {
           collegeSubtitle: `${getAcademicYearName(item.academicYearId)} / ${getYearLevelName(item.yearLevelId)}`,
           courseText: getCourseNameByStudentId(item.studentId),
           timeText: formatHistoryTime(item.referredTime, item.id),
-          dateValue: item.referredDate,
+          dateValue: item.referredDate ?? item.createdAt,
           statusText: item.status,
           viewTo: `/app/referrals/${item.id}`,
           searchText: [
@@ -1757,7 +1766,7 @@ export default function Counseling() {
             getCourseNameByStudentId(item.studentId),
             student?.email ?? "",
             item.reason,
-            item.referredDate,
+            item.referredDate ?? "",
           ]
             .join(" ")
             .toLowerCase(),
@@ -1769,7 +1778,7 @@ export default function Counseling() {
         };
       });
 
-    const combined = [...sessionItems, ...mediationItems, ...referralItems].sort((a, b) => {
+    const combined = [...sessionItems, ...referralItems].sort((a, b) => {
       const byTimestamp = b.sortTimestamp - a.sortTimestamp;
       if (byTimestamp !== 0) return byTimestamp;
 
@@ -1791,7 +1800,6 @@ export default function Counseling() {
     );
   }, [
     completedCases,
-    mediationCases,
     referrals,
     students,
     filterCollegeId,
@@ -1805,14 +1813,19 @@ export default function Counseling() {
     courses,
   ]);
 
+  const sessionHistoryItems = useMemo(
+    () => historyItems.filter((item) => item.type === "session"),
+    [historyItems],
+  );
+
   const totalHistoryPages = Math.max(
     1,
-    Math.ceil(historyItems.length / HISTORY_PAGE_SIZE),
+    Math.ceil(sessionHistoryItems.length / HISTORY_PAGE_SIZE),
   );
   const paginatedHistoryItems = useMemo(() => {
     const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
-    return historyItems.slice(start, start + HISTORY_PAGE_SIZE);
-  }, [historyItems, historyPage]);
+    return sessionHistoryItems.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [sessionHistoryItems, historyPage]);
 
   useEffect(() => {
     setHistoryPage(1);
@@ -2030,7 +2043,8 @@ export default function Counseling() {
       );
 
       if (nextStatus === "Resolved") {
-        setActiveTab("history");
+        setActiveTab("sessions");
+        setShowSessionHistory(true);
       }
     } finally {
       setStatusUpdateOverlay(null);
@@ -2046,6 +2060,26 @@ export default function Counseling() {
     return `${names.slice(0, 2).join(", ")} +${names.length - 2} more`;
   };
 
+  const addSessionStudent = () => {
+    const nextStudent = availableAdditionalStudents[0];
+    if (!nextStudent) return;
+    setAdditionalStudentIds((current) =>
+      sanitizeIdList([...current, nextStudent.id]),
+    );
+  };
+  const updateAdditionalSessionStudent = (index: number, nextId: number) => {
+    setAdditionalStudentIds((current) => {
+      const next = [...current];
+      next[index] = nextId;
+      return sanitizeIdList(next).filter((id) => id !== studentId);
+    });
+  };
+  const removeAdditionalSessionStudent = (index: number) => {
+    setAdditionalStudentIds((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+  };
+
   const resetModal = () => {
     setEditingCaseId(null);
     setShowModalFilters(false);
@@ -2054,6 +2088,8 @@ export default function Counseling() {
     setModalYearLevelId(filterYearLevelId);
     setModalSection("");
     setStudentId(0);
+    setAdditionalStudentIds([]);
+    setStaffUserId(defaultStaffUserId);
     setDate("");
     setTime("");
     setStatus("Pending");
@@ -2061,6 +2097,8 @@ export default function Counseling() {
     setNotes("");
     setActionTaken("");
     setFollowUpDate("");
+    setTimeFinished("");
+    setRecommendation("");
   };
 
   const openAddSession = () => {
@@ -2078,6 +2116,8 @@ export default function Counseling() {
     setModalYearLevelId(item.yearLevelId || currentStudent?.yearLevelId || 0);
     setModalSection(currentStudent ? userSection(currentStudent) : "");
     setStudentId(item.studentId);
+    setAdditionalStudentIds([]);
+    setStaffUserId(item.STAFFUserId ?? item.counselorUserId ?? 0);
     setDate(item.date);
     setTime(item.time ?? "");
     setStatus(item.status);
@@ -2085,6 +2125,8 @@ export default function Counseling() {
     setNotes(item.notes ?? "");
     setActionTaken(item.actionTaken ?? "");
     setFollowUpDate(item.followUpDate ?? "");
+    setTimeFinished(item.timeFinished ?? "");
+    setRecommendation(item.recommendation ?? "");
     setOpen(true);
   };
 
@@ -2105,6 +2147,12 @@ export default function Counseling() {
         return;
       }
 
+      const assignedStaffId = target.STAFFUserId ?? target.counselorUserId ?? 0;
+      if (status !== "Pending" && (!assignedStaffId || !target.date || !target.time)) {
+        alert("Assign staff, date, and time before changing this session status.");
+        return;
+      }
+
       setStatusUpdateOverlay({ kind: "session", id });
       const minimumSpinnerDelay = new Promise<void>((resolve) =>
         window.setTimeout(resolve, 2000),
@@ -2112,6 +2160,8 @@ export default function Counseling() {
       const [res] = await Promise.all([
         updateCounselingCase({
           id,
+          STAFFUserId: assignedStaffId || null,
+          date: target.date,
           status,
           time: target?.time ?? undefined,
         }),
@@ -2129,12 +2179,15 @@ export default function Counseling() {
   };
 
   const handleSaveSession = async () => {
+    const sessionStudentIds = editingCaseId
+      ? sanitizeIdList([studentId])
+      : selectedSessionStudentIds;
+
     if (
       (!editingCaseId && missingCreateSessionFields.length > 0) ||
-      !studentId ||
+      sessionStudentIds.length === 0 ||
       !date ||
-      !resolvedModalCollegeId ||
-      !resolvedModalYearLevelId ||
+      (editingCaseId && (!resolvedModalCollegeId || !resolvedModalYearLevelId)) ||
       savingSession
     ) {
       return;
@@ -2144,12 +2197,19 @@ export default function Counseling() {
     const isEditingSession = editingCaseId != null;
     const nextFollowUpDate = optionalText(followUpDate);
     const originalFollowUpDate = optionalText(editingCase?.followUpDate);
+    const nextTimeFinished = optionalText(timeFinished);
+    const nextRecommendation = optionalText(recommendation);
 
     if (
       status === "Completed" &&
       !isCompletionReady({ reason, notes, actionTaken })
     ) {
       alert(completionAlertMessage());
+      return;
+    }
+
+    if (status !== "Pending" && (!staffUserId || !date || !optionalText(time))) {
+      alert("Assign staff, date, and time before changing this session status.");
       return;
     }
 
@@ -2162,14 +2222,9 @@ export default function Counseling() {
       return;
     }
 
-    const payload = {
-      studentId,
-      STAFFUserId:
-        editingCase?.STAFFUserId ??
-        (authUser && authUser.role !== "STUDENT" ? authUser.id : undefined),
+    const basePayload = {
+      STAFFUserId: staffUserId || null,
       academicYearId: selectedAyId,
-      collegeId: resolvedModalCollegeId,
-      yearLevelId: resolvedModalYearLevelId,
       date,
       time: optionalText(time),
       status,
@@ -2177,6 +2232,18 @@ export default function Counseling() {
       notes: optionalText(notes),
       actionTaken: optionalText(actionTaken),
       followUpDate: nextFollowUpDate,
+    };
+
+    const payload = {
+      studentId,
+      ...basePayload,
+      collegeId: resolvedModalCollegeId,
+      yearLevelId: resolvedModalYearLevelId,
+      timeFinished: nextTimeFinished,
+      recommendation: nextRecommendation,
+      studentRequest: editingCase?.studentRequest,
+      createdByUserId: editingCase?.createdByUserId,
+      createdByRole: editingCase?.createdByRole,
     };
 
     try {
@@ -2187,6 +2254,12 @@ export default function Counseling() {
         );
         const res = await updateCounselingCase({
           id: editingCaseId,
+          studentId,
+          STAFFUserId: staffUserId || null,
+          academicYearId: selectedAyId,
+          collegeId: resolvedModalCollegeId,
+          yearLevelId: resolvedModalYearLevelId,
+          date,
           status,
           time: optionalText(time),
           reason: optionalText(reason),
@@ -2208,31 +2281,58 @@ export default function Counseling() {
         const minLoadingDelay = new Promise<void>((resolve) =>
           window.setTimeout(resolve, 3000),
         );
-        const res = await createCounselingCase(payload);
-        await minLoadingDelay;
-        const createdId =
-          typeof res.id === "number" && Number.isFinite(res.id)
-            ? res.id
-            : cases.reduce((max, item) => Math.max(max, item.id), 0) + 1;
-        let next = mergeCounselingCases(res.cases ?? cases, cases).map((item) =>
-          item.id === createdId
-            ? {
-                ...item,
-                ...payload,
-              }
-            : item,
-        );
-        if (!next.some((item) => item.id === createdId)) {
-          next = [
-            {
-              id: createdId,
-              ...payload,
-              createdAt: payload.date,
-            },
-            ...next,
-          ];
+        let nextCases = cases;
+        let fallbackId =
+          cases.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+
+        for (const currentStudentId of sessionStudentIds) {
+          const academicValues =
+            getSessionStudentAcademicValues(currentStudentId);
+          const currentPayload = {
+            studentId: currentStudentId,
+            ...basePayload,
+            collegeId: academicValues.collegeId,
+            yearLevelId: academicValues.yearLevelId,
+            studentRequest: false,
+          };
+          const localCurrentPayload = {
+            ...currentPayload,
+            createdByUserId: authUser?.id ?? null,
+            createdByRole: authUser?.role ?? null,
+          };
+
+          const res = await createCounselingCase(currentPayload);
+          const createdId =
+            typeof res.id === "number" && Number.isFinite(res.id)
+              ? res.id
+              : fallbackId++;
+          fallbackId = Math.max(fallbackId, createdId + 1);
+          let merged = mergeCounselingCases(
+            res.cases ?? nextCases,
+            nextCases,
+          ).map((item) =>
+            item.id === createdId
+              ? {
+                  ...item,
+                  ...localCurrentPayload,
+                }
+              : item,
+          );
+          if (!merged.some((item) => item.id === createdId)) {
+            merged = [
+              {
+                id: createdId,
+                ...localCurrentPayload,
+                createdAt: currentPayload.date,
+              },
+              ...merged,
+            ];
+          }
+          nextCases = merged;
         }
-        persistCases(next);
+
+        await minLoadingDelay;
+        persistCases(nextCases);
       }
 
       if (isEditingSession) {
@@ -2274,14 +2374,6 @@ export default function Counseling() {
     background: "white",
     color: "var(--text)",
   };
-  const readOnlyInputStyle: React.CSSProperties = {
-    ...inputStyle,
-    background: "rgba(15,23,42,0.06)",
-    color: "rgba(15,23,42,0.85)",
-    cursor: "default",
-    fontWeight: 700,
-  };
-
   const textareaStyle: React.CSSProperties = {
     borderRadius: 10,
     border: "1px solid var(--border)",
@@ -2292,6 +2384,30 @@ export default function Counseling() {
     color: "var(--text)",
     minHeight: 90,
     resize: "vertical",
+  };
+  const counselingNotesSheet: React.CSSProperties = {
+    display: "grid",
+    gap: 12,
+  };
+  const counselingNotesLabel: React.CSSProperties = {
+    fontSize: 13,
+    fontWeight: 800,
+    opacity: 0.85,
+  };
+  const counselingNotesInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    background: "#ffffff",
+    color: "var(--text)",
+  };
+  const counselingNotesReadOnlyInputStyle: React.CSSProperties = {
+    ...counselingNotesInputStyle,
+    background: "rgba(248,250,252,0.92)",
+    color: "#334155",
+    cursor: "default",
+  };
+  const counselingNotesTextareaStyle: React.CSSProperties = {
+    ...textareaStyle,
+    minHeight: 90,
   };
 
   const primaryButton: React.CSSProperties = {
@@ -2541,21 +2657,6 @@ export default function Counseling() {
     alignItems: "center",
     justifyContent: "center",
   };
-  const historyTypeChipBase: React.CSSProperties = {
-    height: 36,
-    padding: "0 12px",
-    borderRadius: 999,
-    border: "1px solid rgba(15,23,42,0.10)",
-    background: "white",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    fontWeight: 800,
-    fontSize: 13,
-    cursor: "pointer",
-    transition: "all 160ms ease",
-  };
   const modalCompactFilterPanel: React.CSSProperties = {
     ...compactFilterPanel,
     top: "calc(100% + 8px)",
@@ -2655,8 +2756,8 @@ export default function Counseling() {
     cursor: "pointer",
   };
   const renderTabContent = () => {
-    if (activeTab === "sessions" || activeTab === "history") {
-      const isHistoryTab = activeTab === "history";
+    if (activeTab === "sessions") {
+      const isHistoryTab = showSessionHistory;
 
       return (
         <div style={{ display: "grid", gap: 12 }}>
@@ -2670,6 +2771,29 @@ export default function Counseling() {
               }}
             >
               <CounselingActionButton
+                onClick={() => {
+                  setShowSessionHistory((current) => !current);
+                  setHistoryPage(1);
+                  setHistorySearch("");
+                  setHistoryTypeFilter(null);
+                }}
+                active={showSessionHistory}
+                title={
+                  showSessionHistory
+                    ? "Show active sessions"
+                    : "Show completed session history"
+                }
+                ariaLabel={
+                  showSessionHistory
+                    ? "Show active sessions"
+                    : "Show completed session history"
+                }
+                baseStyle={headerIconButton}
+              >
+                {showSessionHistory ? <List size={20} /> : <History size={20} />}
+              </CounselingActionButton>
+              {!showSessionHistory && (
+              <CounselingActionButton
                 onClick={openAddSession}
                 title="Add Session"
                 ariaLabel="Add Session"
@@ -2677,6 +2801,7 @@ export default function Counseling() {
               >
                 <Plus size={20} />
               </CounselingActionButton>
+              )}
             </div>
           )}
 
@@ -2691,6 +2816,7 @@ export default function Counseling() {
               <tr>
                 {isHistoryTab && <th style={historyTh}>Case Type</th>}
                 <th style={isHistoryTab ? historyTh : sessionTh}>Student Name</th>
+                {!isHistoryTab && <th style={sessionTh}>Kinds</th>}
                 <th style={isHistoryTab ? historyTh : sessionTh}>College / Year</th>
                 <th style={isHistoryTab ? historyTh : sessionTh}>Course</th>
                 <th style={isHistoryTab ? historyTh : sessionTh}>Time</th>
@@ -2702,15 +2828,15 @@ export default function Counseling() {
               </tr>
             </thead>
             <tbody>
-              {(isHistoryTab ? historyItems.length === 0 : displayCases.length === 0) ? (
+              {(isHistoryTab ? sessionHistoryItems.length === 0 : displayCases.length === 0) ? (
                 <tr>
                   <td
                     style={isHistoryTab ? historyTd : sessionTd}
-                    colSpan={isHistoryTab ? 8 : 7}
+                    colSpan={isHistoryTab ? 8 : 8}
                   >
                     <span style={{ opacity: 0.8 }}>
                       {showCompletedHistory
-                        ? "No history cases found for this filter."
+                        ? "No completed sessions found for this filter."
                         : "No active sessions found for this filter."}
                     </span>
                   </td>
@@ -2872,6 +2998,15 @@ export default function Counseling() {
                       >
                         {getStudentName(c.studentId)}
                       </div>
+                    </td>
+                    <td
+                      style={{
+                        ...(isHistoryTab ? historyTd : sessionTd),
+                        ...overdueCellStyle,
+                        color: isHistoryTab ? historyTd.color : sessionTd.color,
+                      }}
+                    >
+                      {getSessionKind(c)}
                     </td>
                     <td
                       style={{
@@ -3075,7 +3210,7 @@ export default function Counseling() {
             </tbody>
           </table>
 
-          {isHistoryTab && historyItems.length > 0 && totalHistoryPages > 1 && (
+          {isHistoryTab && sessionHistoryItems.length > 0 && totalHistoryPages > 1 && (
             <div
               style={{
                 display: "flex",
@@ -3324,8 +3459,8 @@ export default function Counseling() {
       );
     }
 
-    if (activeTab === "referrals") {
-      return <ReferralsPage embedded onReferralsChange={setReferrals} />;
+    if (activeTab === "group-sessions" && canAccessGroupCounselling) {
+      return <GroupSessions embedded />;
     }
 
     return null;
@@ -3367,12 +3502,20 @@ export default function Counseling() {
             }}
           >
             <div style={tabBarStyle}>
-              {COUNSELING_TABS.map((tab) => {
+              {visibleCounselingTabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
                   <CounselingTabButton
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      if (tab.id !== "sessions") {
+                        setShowSessionHistory(false);
+                        setHistorySearch("");
+                        setHistoryTypeFilter(null);
+                        setHistoryPage(1);
+                      }
+                    }}
                     active={activeTab === tab.id}
                     title={tab.label}
                     ariaLabel={tab.label}
@@ -3640,7 +3783,7 @@ export default function Counseling() {
             <div
               style={{
                 display: "grid",
-                gap: activeTab === "history" ? 10 : 0,
+                gap: showSessionHistory ? 10 : 0,
               }}
             >
               <div
@@ -3652,7 +3795,7 @@ export default function Counseling() {
                   justifyContent: "flex-end",
                 }}
               >
-                {activeTab === "history" && (
+                {showSessionHistory && (
                   <div style={{ position: "relative", width: 220, maxWidth: "100%" }}>
                     <Search
                       size={15}
@@ -3668,7 +3811,7 @@ export default function Counseling() {
                     <input
                       value={historySearch}
                       onChange={(e) => setHistorySearch(e.target.value)}
-                      placeholder="Search student, college, course, or case type..."
+                      placeholder="Search completed sessions..."
                       style={{
                         ...inputStyle,
                         height: 44,
@@ -3764,66 +3907,6 @@ export default function Counseling() {
                   )}
                 </div>
               </div>
-
-              {activeTab === "history" && (
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    flexWrap: "wrap",
-                    justifyContent: "flex-end",
-                  }}
-                >
-                  {(
-                    [
-                      "session",
-                      "mediation",
-                      "referral",
-                    ] as const
-                  ).map((type) => {
-                    const meta = HISTORY_TYPE_META[type];
-                    const Icon = meta.icon;
-                    const active = historyTypeFilter === type;
-
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() =>
-                          setHistoryTypeFilter((current) =>
-                            current === type ? null : type,
-                          )
-                        }
-                        title={meta.label}
-                        aria-label={meta.label}
-                        style={{
-                          ...historyTypeChipBase,
-                          width: 40,
-                          padding: 0,
-                          borderColor: active ? meta.border : "rgba(15,23,42,0.10)",
-                          background: active ? meta.background : "white",
-                          color: meta.color,
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 24,
-                            height: 24,
-                            borderRadius: 999,
-                            background: active ? "rgba(255,255,255,0.68)" : meta.background,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: meta.color,
-                          }}
-                        >
-                          <Icon size={14} />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -3835,8 +3918,16 @@ export default function Counseling() {
         open={open}
         onClose={savingSession || sessionCreateSuccess ? () => {} : closeModal}
         title={editingCaseId ? "Edit Session" : "Add Session"}
-        contentStyle={{ overflow: "visible", maxHeight: "none" }}
-        bodyStyle={{ overflow: "visible" }}
+        contentStyle={
+          editingCaseId
+            ? undefined
+            : { overflow: "visible", maxHeight: "none" }
+        }
+        bodyStyle={
+          editingCaseId
+            ? undefined
+            : { overflow: "visible" }
+        }
       >
         <div style={sessionModalBody}>
           {showSessionCreateAnimation && (
@@ -3878,11 +3969,18 @@ export default function Counseling() {
           <div
             style={{
               display: "grid",
-              gap: 12,
+              gap: editingCaseId ? 8 : 12,
               opacity: showSessionCreateAnimation ? 0.12 : 1,
               pointerEvents: showSessionCreateAnimation ? "none" : "auto",
               transition: "opacity 180ms ease",
             }}
+          >
+          <div
+            style={
+              editingCaseId
+                ? counselingNotesSheet
+                : { display: "grid", gap: 12 }
+            }
           >
           <div>
             <div
@@ -3895,7 +3993,9 @@ export default function Counseling() {
               }}
             >
               <div style={{ flex: "1 1 260px", minWidth: 0 }}>
-                <div style={label}>Student Name</div>
+                <div style={editingCaseId ? counselingNotesLabel : label}>
+                  {editingCaseId ? "Name" : "Student Name"}
+                </div>
                 {editingCaseId ? (
                   <input
                     value={
@@ -3910,7 +4010,7 @@ export default function Counseling() {
                         : `${getStudentName(studentId)} (${getStudentEmail(studentId)})`
                     }
                     readOnly
-                    style={readOnlyInputStyle}
+                    style={counselingNotesReadOnlyInputStyle}
                   />
                 ) : (
                   <DropdownSelect
@@ -3924,14 +4024,31 @@ export default function Counseling() {
                     <option value={0} hidden>
                       Select student
                     </option>
-                    {filteredStudents.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {`${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`}
-                      </option>
-                    ))}
+                    {filteredStudents
+                      .filter(
+                        (s) =>
+                          s.id === studentId ||
+                          !additionalStudentIds.includes(s.id),
+                      )
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {`${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`}
+                        </option>
+                      ))}
                   </DropdownSelect>
                 )}
               </div>
+
+              {editingCaseId && (
+                <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                  <div style={counselingNotesLabel}>Course & Year</div>
+                  <input
+                    value={`${getCourseNameByStudentId(studentId)} / ${getYearLevelName(resolvedModalYearLevelId)}`}
+                    readOnly
+                    style={counselingNotesReadOnlyInputStyle}
+                  />
+                </div>
+              )}
 
               {!editingCaseId && (
                 <div style={{ position: "relative", flexShrink: 0 }}>
@@ -4044,6 +4161,106 @@ export default function Counseling() {
               )}
             </div>
 
+            {!editingCaseId && additionalStudentIds.length > 0 && (
+              <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                {additionalStudentIds.map((selectedId, index) => {
+                  const blockedIds = new Set([
+                    studentId,
+                    ...additionalStudentIds.filter((_, itemIndex) => itemIndex !== index),
+                  ]);
+
+                  return (
+                    <div
+                      key={`${selectedId}-${index}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: 10,
+                        alignItems: "end",
+                      }}
+                    >
+                      <div>
+                        <div style={label}>Student Name {index + 2}</div>
+                        <DropdownSelect
+                          value={selectedId}
+                          onChange={(e) =>
+                            updateAdditionalSessionStudent(
+                              index,
+                              Number(e.target.value),
+                            )
+                          }
+                          style={{
+                            ...inputStyle,
+                            color: selectedId ? "var(--text)" : "#6b7280",
+                          }}
+                        >
+                          <option value={0} hidden>
+                            Select student
+                          </option>
+                          {filteredStudents
+                            .filter(
+                              (student) =>
+                                student.id === selectedId ||
+                                !blockedIds.has(student.id),
+                            )
+                            .map((student) => (
+                              <option key={student.id} value={student.id}>
+                                {`${student.fname} ${student.mname ? student.mname + " " : ""}${student.lname}`}
+                              </option>
+                            ))}
+                        </DropdownSelect>
+                      </div>
+
+                      <CounselingActionButton
+                        onClick={() => removeAdditionalSessionStudent(index)}
+                        title="Remove student"
+                        ariaLabel="Remove student"
+                        baseStyle={modalFilterButton}
+                      >
+                        <X size={18} />
+                      </CounselingActionButton>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!editingCaseId && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: 12,
+                }}
+              >
+                <CounselingActionButton
+                  onClick={addSessionStudent}
+                  disabled={availableAdditionalStudents.length === 0}
+                  title={
+                    availableAdditionalStudents.length === 0
+                      ? "No more students available"
+                      : "Add another student"
+                  }
+                  ariaLabel="Add another student"
+                  baseStyle={{
+                    ...ghostButton,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: availableAdditionalStudents.length === 0 ? 0.62 : 1,
+                    cursor:
+                      availableAdditionalStudents.length === 0
+                        ? "not-allowed"
+                        : "pointer",
+                  }}
+                >
+                  <Plus size={16} />
+                  Add Student
+                </CounselingActionButton>
+              </div>
+            )}
+
             {filteredStudents.length === 0 && (
               <div style={{ marginTop: 8, opacity: 0.8, fontSize: 13 }}>
                 No students found in this filter. Add students in User
@@ -4052,62 +4269,119 @@ export default function Counseling() {
             )}
           </div>
 
+          <div>
+            <div style={editingCaseId ? counselingNotesLabel : label}>
+              {editingCaseId ? "Counselor" : "Assigned Staff"}
+            </div>
+            <DropdownSelect
+              value={staffUserId}
+              onChange={(e) => setStaffUserId(Number(e.target.value))}
+              style={{
+                ...(editingCaseId ? counselingNotesInputStyle : inputStyle),
+                color: staffUserId ? "var(--text)" : "#6b7280",
+              }}
+            >
+              <option value={0}>To be assigned</option>
+              {staffUsers.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {`${staff.fname} ${staff.mname ? staff.mname + " " : ""}${staff.lname}`}
+                </option>
+              ))}
+            </DropdownSelect>
+            {staffUsers.length === 0 && (
+              <div style={{ marginTop: 8, opacity: 0.8, fontSize: 13 }}>
+                No staff accounts found in User Management.
+              </div>
+            )}
+          </div>
+
           <div
             style={{
               display: "grid",
               gap: 10,
-              gridTemplateColumns: "1fr 1fr",
+              gridTemplateColumns: editingCaseId
+                ? "repeat(auto-fit, minmax(150px, 1fr))"
+                : "1fr 1fr",
             }}
           >
             <div>
-              <div style={label}>Date</div>
+              <div style={editingCaseId ? counselingNotesLabel : label}>Date</div>
               <FormattedDateInput
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                displayStyle={inputStyle}
+                displayStyle={
+                  editingCaseId ? counselingNotesInputStyle : inputStyle
+                }
               />
             </div>
 
+            {editingCaseId && (
+              <div>
+                <div style={counselingNotesLabel}>Session No.</div>
+                <input
+                  value={`#${editingCaseId}`}
+                  readOnly
+                  style={counselingNotesReadOnlyInputStyle}
+                />
+              </div>
+            )}
+
             <div>
-              <div style={label}>Time</div>
+              <div style={editingCaseId ? counselingNotesLabel : label}>
+                {editingCaseId ? "Time Start" : "Time"}
+              </div>
               <input
                 type="time"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
-                style={inputStyle}
+                style={editingCaseId ? counselingNotesInputStyle : inputStyle}
               />
             </div>
+
+            {editingCaseId && (
+              <div>
+                <div style={counselingNotesLabel}>Time Finished</div>
+                <input
+                  type="time"
+                  value={timeFinished}
+                  onChange={(e) => setTimeFinished(e.target.value)}
+                  style={counselingNotesInputStyle}
+                />
+              </div>
+            )}
           </div>
 
           {editingCaseId && (
             <>
               <div>
-                <div style={label}>Reason for counseling</div>
+                <div style={counselingNotesLabel}>Background</div>
                 <textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  style={textareaStyle}
-                  placeholder="Enter the reason for counseling..."
+                  style={counselingNotesTextareaStyle}
+                  placeholder="Enter the student's background..."
                 />
               </div>
 
               <div>
-                <div style={label}>Notes</div>
+                <div style={counselingNotesLabel}>
+                  Behavioral Observations and Relevant History
+                </div>
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  style={textareaStyle}
-                  placeholder="Add case notes here..."
+                  style={counselingNotesTextareaStyle}
+                  placeholder="Add observations and relevant history..."
                 />
               </div>
 
               <div>
-                <div style={label}>Action taken</div>
+                <div style={counselingNotesLabel}>Intervention</div>
                 <textarea
                   value={actionTaken}
                   onChange={(e) => setActionTaken(e.target.value)}
-                  style={textareaStyle}
-                  placeholder="Describe the action taken..."
+                  style={counselingNotesTextareaStyle}
+                  placeholder="Describe the intervention..."
                 />
               </div>
             </>
@@ -4122,11 +4396,21 @@ export default function Counseling() {
 
           {editingCaseId && (
             <div>
-              <div style={label}>Follow-up date</div>
+              <div style={counselingNotesLabel}>
+                Assignment / Recommendation
+              </div>
+              <textarea
+                value={recommendation}
+                onChange={(e) => setRecommendation(e.target.value)}
+                style={counselingNotesTextareaStyle}
+                placeholder="Enter assignment or recommendation..."
+              />
+              <div style={{ marginTop: 10 }}>
+                <div style={counselingNotesLabel}>Follow-up Date</div>
               <FormattedDateInput
                 value={followUpDate}
                 onChange={(e) => setFollowUpDate(e.target.value)}
-                displayStyle={inputStyle}
+                displayStyle={counselingNotesInputStyle}
                 min={
                   followUpDate && followUpDate < todayIsoDate()
                     ? undefined
@@ -4140,10 +4424,42 @@ export default function Counseling() {
                       })()
                 }
               />
+              </div>
+              <div
+                style={{
+                  margin: "16px auto 0",
+                  width: "min(320px, 70%)",
+                  borderTop: "1px solid #334155",
+                  paddingTop: 6,
+                  textAlign: "center",
+                  color: "#475569",
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                Guidance Counselor
+              </div>
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              justifyContent: "flex-end",
+              ...(editingCaseId
+                ? {
+                    position: "sticky",
+                    bottom: 0,
+                    paddingTop: 12,
+                    background: "white",
+                    zIndex: 1,
+                  }
+                : {}),
+            }}
+          >
             <button
               onClick={closeModal}
               style={ghostButton}
@@ -4158,11 +4474,13 @@ export default function Counseling() {
                 savingSession ||
                 sessionCreateSuccess ||
                 filteredStudents.length === 0 ||
-                !studentId ||
+                selectedSessionStudentIds.length === 0 ||
                 !date ||
                 (!editingCaseId && missingCreateSessionFields.length > 0) ||
-                !resolvedModalCollegeId ||
-                !resolvedModalYearLevelId
+                Boolean(
+                  editingCaseId &&
+                    (!resolvedModalCollegeId || !resolvedModalYearLevelId),
+                )
               }
             >
               <span style={buttonContent}>

@@ -1,54 +1,33 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import {
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Clock3,
+  FileText,
+  UsersRound,
+} from "lucide-react";
 import useStudentPortalSync from "../hooks/useStudentPortalSync";
-import { useAuthStore } from "../store/authStore";
-import {
-  fetchEntitiesBootstrap,
-  listCounselingCases,
-  listGroupSessions,
-  listReferrals,
-  type AcademicYear as EntityAcademicYear,
-  type CounselingCase as EntityCounselingCase,
-  type GroupSession as EntityGroupSession,
-  type GroupSessionMember as EntityGroupSessionMember,
-  type Referral as EntityReferral,
-  type User as EntityUser,
-  type YearLevel as EntityYearLevel,
-} from "../lib/entitiesApi";
-import {
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  XAxis,
-  Tooltip,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import { useGCMS, fullName } from "../store/gcmsStore";
 
 /**
- * StudentDashboard.tsx (COMPACT / LESS SPACE)
- * ✅ Smaller paddings, fonts, radii, chart heights
- * ✅ Survey Progress: removed buttons (Take Survey / My Counseling)
- * ✅ Keeps: stats row, activity line chart, survey pie, sessions carousel, activity carousel
+ * StudentDashboard.tsx
+ * Focused student overview: group counselling schedule, referrals, and counselling request status.
  */
 
 type AnyRecord = Record<string, any>;
-type MediationCase = {
-  id: number;
+type StudentScheduleItem = {
+  id: string;
   title: string;
-  participantIds: number[];
-  academicYearId: number;
-  date: string;
-  status: "Open" | "In Progress" | "Resolved";
-  issueDescription?: string;
-  createdAt?: string;
+  type: "Counselling Request" | "Referral Meeting" | "Group Counselling";
+  dateKey: string;
+  timeLabel: string;
+  timestamp: number;
+  accent: string;
+  detail: string;
 };
-
-const USERS_KEY = "gcms_mock_users_v1";
-const YL_KEY = "gcms_mock_year_levels_v1";
-const YEARS_KEY = "gcms_mock_academic_years_v1";
-const MEDIATION_KEY = "gcms_mock_mediation_cases_v1";
 
 const styles = {
   page: {
@@ -177,6 +156,75 @@ const styles = {
     alignItems: "stretch",
   } as React.CSSProperties,
 
+  calendarGrid: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1.45fr) minmax(280px, 0.85fr)",
+    gap: 14,
+    alignItems: "start",
+  } as React.CSSProperties,
+
+  calendarWrap: {
+    borderRadius: 18,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background:
+      "linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(248,250,252,0.95) 100%)",
+    padding: 14,
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.55)",
+  } as React.CSSProperties,
+
+  weekdayGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    gap: 8,
+    marginBottom: 8,
+  } as React.CSSProperties,
+
+  weekdayCell: {
+    fontSize: 11,
+    fontWeight: 900,
+    color: "#64748b",
+    textTransform: "uppercase",
+    textAlign: "center",
+    padding: "6px 0",
+  } as React.CSSProperties,
+
+  calendarGridCells: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+    gap: 8,
+  } as React.CSSProperties,
+
+  agendaColumn: {
+    display: "grid",
+    gap: 12,
+  } as React.CSSProperties,
+
+  agendaCard: {
+    background: "rgba(255,255,255,0.92)",
+    border: "1px solid rgba(15,23,42,0.08)",
+    borderRadius: 14,
+    boxShadow: "0 10px 22px rgba(15,23,42,0.06)",
+    padding: 12,
+    display: "grid",
+    gap: 10,
+  } as React.CSSProperties,
+
+  agendaList: {
+    display: "grid",
+    gap: 10,
+  } as React.CSSProperties,
+
+  agendaRow: {
+    display: "grid",
+    gridTemplateColumns: "auto minmax(0, 1fr)",
+    gap: 10,
+    alignItems: "center",
+    padding: 10,
+    borderRadius: 14,
+    border: "1px solid rgba(15,23,42,0.08)",
+    background: "rgba(248,250,252,0.8)",
+  } as React.CSSProperties,
+
   // Carousel
   carouselControls: {
     display: "flex",
@@ -237,10 +285,12 @@ const styles = {
     @media (max-width: 1100px) {
       .statsGrid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
       .grid12 { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
+      .studentCalendarGrid { grid-template-columns: 1fr !important; }
     }
     @media (max-width: 700px) {
       .statsGrid { grid-template-columns: 1fr !important; }
       .grid12 { grid-template-columns: 1fr !important; }
+      .studentCalendarCells button { min-height: 76px !important; padding: 8px !important; }
     }
   `,
 };
@@ -258,22 +308,81 @@ function formatDateTime(d?: string | Date | null) {
   });
 }
 
-function loadLocal<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+function dateKeyFromDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-function buildFullName(user?: {
-  fname?: string;
-  mname?: string | null;
-  lname?: string;
-} | null) {
-  if (!user) return "Student";
-  return [user.fname, user.mname, user.lname].filter(Boolean).join(" ");
+function toDateKey(value?: string | null): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return dateKeyFromDate(parsed);
+}
+
+function parseScheduleTimestamp(date?: string | null, time?: string | null): number {
+  const dateKey = toDateKey(date);
+  if (!dateKey) return 0;
+
+  const timeText = String(time || "").trim() || "00:00";
+  const parsed = new Date(`${dateKey}T${timeText}:00`);
+  if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+
+  const fallback = new Date(`${dateKey}T00:00:00`);
+  return Number.isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+}
+
+function formatDateLong(value?: string | null): string {
+  const dateKey = toDateKey(value);
+  if (!dateKey) return "No date selected";
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  return parsed.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateShort(value?: string | null): string {
+  const dateKey = toDateKey(value);
+  if (!dateKey) return "Date not set";
+  const parsed = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateKey;
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatTimeShort(value?: string | null): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "Time not set";
+  const [hourPart, minutePart] = raw.split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return raw;
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function shiftMonth(date: Date, delta: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+}
+
+function sameMonth(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 }
 
 function buildScheduleDateTime(date?: string | null, time?: string | null) {
@@ -514,16 +623,24 @@ export default function StudentDashboard() {
   const counseling: AnyRecord[] = store.counseling ?? store.counselings ?? [];
   const referral: AnyRecord[] = store.referral ?? store.referrals ?? [];
   const group_session: AnyRecord[] =
-    store.group_session ?? store.groupSessions ?? [];
+    store.group_sessions ?? store.group_session ?? store.groupSessions ?? [];
   const group_session_member: AnyRecord[] =
-    store.group_session_member ?? store.groupSessionMembers ?? [];
-  const survey_interview: AnyRecord[] =
-    store.survey_interview ?? store.surveyInterviews ?? [];
+    store.group_session_members ??
+    store.group_session_member ??
+    store.groupSessionMembers ??
+    [];
   const academic_year: AnyRecord[] =
     store.academic_year ?? store.academicYears ?? [];
 
   const myUserId =
     currentUser?.users_id ?? currentUser?.id ?? currentUser?.user_id;
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() =>
+    startOfMonth(new Date()),
+  );
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(() =>
+    dateKeyFromDate(new Date()),
+  );
+  const [scheduleCollapsed, setScheduleCollapsed] = useState(false);
 
   const dashboard = useMemo(() => {
     const myCounselings = counseling
@@ -537,18 +654,34 @@ export default function StudentDashboard() {
 
     const latestCounseling = myCounselings[0] ?? null;
 
-    const myReferrals = referral
+    const allMyReferrals = referral
       .filter(
         (r) =>
           (r.student_user_id ?? r.referred_student_user_id ?? r.studentId) ===
-          myUserId,
+            myUserId ||
+          (r.referred_by_user_id ?? r.referredByUserId) === myUserId,
       )
       .slice()
       .sort(
         (a, b) =>
-          new Date(b.referred_date ?? b.date ?? 0).getTime() -
-          new Date(a.referred_date ?? a.date ?? 0).getTime(),
+          new Date(
+            b.referred_date ?? b.referredDate ?? b.created_at ?? b.createdAt ?? 0,
+          ).getTime() -
+          new Date(
+            a.referred_date ?? a.referredDate ?? a.created_at ?? a.createdAt ?? 0,
+          ).getTime(),
       );
+
+    const receivedReferrals = allMyReferrals.filter(
+      (r) =>
+        (r.student_user_id ?? r.referred_student_user_id ?? r.studentId) ===
+          myUserId &&
+        (r.referred_by_user_id ?? r.referredByUserId) !== myUserId,
+    );
+
+    const submittedReferrals = allMyReferrals.filter(
+      (r) => (r.referred_by_user_id ?? r.referredByUserId) === myUserId,
+    );
 
     const memberRows = group_session_member.filter(
       (m) => (m.student_user_id ?? m.studentId) === myUserId,
@@ -580,75 +713,15 @@ export default function StudentDashboard() {
 
     const nextSession = upcomingSessions[0] ?? null;
 
-    const mySurveys = survey_interview
-      .filter(
-        (sv) => (sv.student_user_id ?? sv.user_id ?? sv.studentId) === myUserId,
-      )
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.submitted_at ?? b.created_at ?? 0).getTime() -
-          new Date(a.submitted_at ?? a.created_at ?? 0).getTime(),
-      );
-
-    const latestSurvey = mySurveys[0] ?? null;
-    const surveySubmitted = !!latestSurvey?.submitted_at;
-
-    const activity: {
-      ts: number;
-      title: string;
-      meta?: string;
-      kind: "counseling" | "referral" | "session" | "survey";
-    }[] = [];
-
-    for (const c of myCounselings.slice(0, 10)) {
-      const t = new Date(c.counseling_date ?? c.created_at ?? 0).getTime();
-      activity.push({
-        ts: t || 0,
-        kind: "counseling",
-        title: `Counseling case ${c.status ? `(${c.status})` : ""}`,
-        meta: `Date: ${formatDateTime(c.counseling_date ?? c.created_at)}`,
-      });
-    }
-    for (const r of myReferrals.slice(0, 10)) {
-      const t = new Date(r.referred_date ?? r.created_at ?? 0).getTime();
-      activity.push({
-        ts: t || 0,
-        kind: "referral",
-        title: "Referral recorded",
-        meta: `Date: ${formatDateTime(r.referred_date ?? r.created_at)}`,
-      });
-    }
-    for (const s of mySessions.slice(0, 10)) {
-      const t = new Date(s.session_date ?? s.date ?? 0).getTime();
-      activity.push({
-        ts: t || 0,
-        kind: "session",
-        title: "Group session",
-        meta: `Schedule: ${formatDateTime(s.session_date ?? s.date)}`,
-      });
-    }
-    for (const sv of mySurveys.slice(0, 10)) {
-      const t = new Date(sv.submitted_at ?? sv.created_at ?? 0).getTime();
-      activity.push({
-        ts: t || 0,
-        kind: "survey",
-        title: sv.submitted_at ? "Survey submitted" : "Survey started",
-        meta: `Date: ${formatDateTime(sv.submitted_at ?? sv.created_at)}`,
-      });
-    }
-
-    activity.sort((a, b) => b.ts - a.ts);
-
     return {
       myCounselings,
       latestCounseling,
-      myReferrals,
+      allMyReferrals,
+      receivedReferrals,
+      submittedReferrals,
       nextSession,
+      mySessions,
       upcomingSessions,
-      latestSurvey,
-      surveySubmitted,
-      activity: activity.slice(0, 12),
     };
   }, [
     myUserId,
@@ -656,7 +729,6 @@ export default function StudentDashboard() {
     referral,
     group_session,
     group_session_member,
-    survey_interview,
   ]);
 
   const greetingName = currentUser ? fullName(currentUser as any) : "Student";
@@ -665,65 +737,211 @@ export default function StudentDashboard() {
     academic_year?.[0]?.sy_name ??
     "Current Academic Year";
 
-  const activityGraphData = useMemo(() => {
-    const buckets = new Map<string, number>();
-    const items = dashboard.activity.slice(0, 20);
-
-    for (const a of items) {
-      const d = a.ts ? new Date(a.ts) : null;
-      const label = d
-        ? d.toLocaleDateString(undefined, { month: "short" })
-        : "—";
-      buckets.set(label, (buckets.get(label) ?? 0) + 1);
-    }
-
-    const arr = Array.from(buckets.entries()).map(([name, activity]) => ({
-      name,
-      activity,
-    }));
-    return arr.length
-      ? arr
-      : [
-          { name: "Jan", activity: 0 },
-          { name: "Feb", activity: 0 },
-          { name: "Mar", activity: 0 },
-          { name: "Apr", activity: 0 },
-        ];
-  }, [dashboard.activity]);
-
-  const surveyPercent = dashboard.surveySubmitted ? 100 : 0;
-  const pieData = useMemo(
-    () => [
-      { name: "Completed", value: surveyPercent },
-      { name: "Remaining", value: Math.max(0, 100 - surveyPercent) },
-    ],
-    [surveyPercent],
-  );
-
-  // keep simple color set
-  const pieColors = ["#1d4ed8", "#e2e8f0"];
-
   const carouselSessions = useMemo(() => {
     if (!dashboard.upcomingSessions.length) return [];
     return dashboard.upcomingSessions.map((s, i) => ({
       id: s.group_session_id ?? s.id ?? `session-${i}`,
-      title: s.topic ?? s.title ?? "Student Circle",
+      title: s.topic ?? s.title ?? "Group Counselling",
       when: formatDateTime(s.session_date ?? s.date ?? s.schedule),
       location: s.location ?? "TBA",
       note: s.description ?? s.notes ?? "",
     }));
   }, [dashboard.upcomingSessions]);
 
-  const carouselActivity = useMemo(() => {
-    if (!dashboard.activity.length) return [];
-    return dashboard.activity.map((a, i) => ({
-      id: `act-${i}-${a.ts}`,
-      kind: a.kind,
-      title: a.title,
-      meta: a.meta,
-      date: a.ts ? new Date(a.ts).toLocaleDateString() : "—",
-    }));
-  }, [dashboard.activity]);
+  const todayKey = useMemo(() => dateKeyFromDate(new Date()), []);
+
+  const scheduleItems = useMemo<StudentScheduleItem[]>(() => {
+    const next: StudentScheduleItem[] = [];
+
+    for (const item of dashboard.myCounselings) {
+      const status = String(item.status || "Pending");
+      const normalizedStatus = status.toLowerCase();
+      if (
+        normalizedStatus.includes("cancel") ||
+        normalizedStatus.includes("complete") ||
+        normalizedStatus.includes("done")
+      ) {
+        continue;
+      }
+
+      const date = item.counseling_date ?? item.date ?? item.created_at ?? item.createdAt;
+      const time = item.counseling_time ?? item.time;
+      const dateKey = toDateKey(date);
+      if (!dateKey) continue;
+
+      next.push({
+        id: `counselling-${item.counseling_id ?? item.id ?? dateKey}`,
+        title: item.reason ?? item.notes ?? "Counselling request",
+        type: "Counselling Request",
+        dateKey,
+        timeLabel: formatTimeShort(time),
+        timestamp: parseScheduleTimestamp(date, time),
+        accent: "rgba(37,99,235,1)",
+        detail: `Status: ${status}`,
+      });
+    }
+
+    for (const item of dashboard.allMyReferrals) {
+      const status = String(item.status || "Pending");
+      const normalizedStatus = status.toLowerCase();
+      if (
+        normalizedStatus.includes("pending") ||
+        normalizedStatus.includes("complete") ||
+        normalizedStatus.includes("closed") ||
+        normalizedStatus.includes("resolved")
+      ) {
+        continue;
+      }
+
+      const date = item.referred_date ?? item.referredDate;
+      const time = item.referred_time ?? item.referredTime;
+      const dateKey = toDateKey(date);
+      if (!dateKey) continue;
+
+      const referredById = item.referred_by_user_id ?? item.referredByUserId;
+      next.push({
+        id: `referral-${item.referral_id ?? item.id ?? dateKey}`,
+        title: item.reason ?? "Referral meeting",
+        type: "Referral Meeting",
+        dateKey,
+        timeLabel: formatTimeShort(time),
+        timestamp: parseScheduleTimestamp(date, time),
+        accent: "rgba(251,191,36,1)",
+        detail: `${referredById === myUserId ? "Submitted" : "Received"} referral · Status: ${status}`,
+      });
+    }
+
+    for (const item of dashboard.mySessions) {
+      const date = item.session_date ?? item.date ?? item.schedule;
+      const time = item.session_time ?? item.time;
+      const dateKey = toDateKey(date);
+      if (!dateKey) continue;
+
+      next.push({
+        id: `group-${item.group_session_id ?? item.id ?? dateKey}`,
+        title: item.topic ?? item.title ?? "Group Counselling",
+        type: "Group Counselling",
+        dateKey,
+        timeLabel: formatTimeShort(time),
+        timestamp: parseScheduleTimestamp(date, time),
+        accent: "rgba(9,14,25,1)",
+        detail: item.location ? `Location: ${item.location}` : "Group Counselling",
+      });
+    }
+
+    next.sort((a, b) => a.timestamp - b.timestamp || a.title.localeCompare(b.title));
+    return next;
+  }, [
+    dashboard.myCounselings,
+    dashboard.allMyReferrals,
+    dashboard.mySessions,
+    myUserId,
+  ]);
+
+  const selectedDateItems = useMemo(
+    () => scheduleItems.filter((item) => item.dateKey === selectedDateKey),
+    [scheduleItems, selectedDateKey],
+  );
+
+  const upcomingAgenda = useMemo(
+    () => scheduleItems.filter((item) => item.dateKey >= todayKey).slice(0, 6),
+    [scheduleItems, todayKey],
+  );
+
+  const scheduleDateCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of scheduleItems) {
+      map.set(item.dateKey, (map.get(item.dateKey) ?? 0) + 1);
+    }
+    return map;
+  }, [scheduleItems]);
+
+  const scheduleItemsByDate = useMemo(() => {
+    const map = new Map<string, StudentScheduleItem[]>();
+    for (const item of scheduleItems) {
+      const current = map.get(item.dateKey) ?? [];
+      current.push(item);
+      map.set(item.dateKey, current);
+    }
+    return map;
+  }, [scheduleItems]);
+
+  const calendarCells = useMemo(() => {
+    const monthStart = startOfMonth(calendarMonth);
+    const gridStart = new Date(monthStart);
+    gridStart.setDate(monthStart.getDate() - monthStart.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+      const cellDate = new Date(gridStart);
+      cellDate.setDate(gridStart.getDate() + index);
+      const key = dateKeyFromDate(cellDate);
+      const count = scheduleDateCounts.get(key) ?? 0;
+      const items = scheduleItemsByDate.get(key) ?? [];
+      return {
+        key,
+        label: cellDate.getDate(),
+        count,
+        isCurrentMonth: sameMonth(cellDate, calendarMonth),
+        isSelected: key === selectedDateKey,
+        isToday: key === todayKey,
+        tooltip: items.length
+          ? items
+              .map((item) => `${item.timeLabel} · ${item.title} · ${item.detail}`)
+              .join("\n")
+          : "No schedules",
+      };
+    });
+  }, [
+    calendarMonth,
+    scheduleDateCounts,
+    scheduleItemsByDate,
+    selectedDateKey,
+    todayKey,
+  ]);
+
+  const referralRows = useMemo(
+    () =>
+      dashboard.allMyReferrals.slice(0, 6).map((r, i) => {
+        const referredById = r.referred_by_user_id ?? r.referredByUserId;
+        return {
+          id: r.referral_id ?? r.id ?? `referral-${i}`,
+          direction: referredById === myUserId ? "Submitted" : "Received",
+          reason: r.reason ?? "Referral",
+          status: r.status ?? "Pending",
+          date: formatDateTime(
+            r.referred_date ?? r.referredDate ?? r.created_at ?? r.createdAt,
+          ),
+        };
+      }),
+    [dashboard.allMyReferrals, myUserId],
+  );
+
+  const counsellingRows = useMemo(
+    () =>
+      dashboard.myCounselings.slice(0, 6).map((c, i) => ({
+        id: c.counseling_id ?? c.id ?? `counselling-${i}`,
+        reason: c.reason ?? c.notes ?? "Counselling request",
+        status: c.status ?? "Pending",
+        date: formatScheduleDateTime(
+          c.counseling_date ?? c.date,
+          c.counseling_time ?? c.time,
+        ),
+      })),
+    [dashboard.myCounselings],
+  );
+
+  const calendarNavButton = (disabled = false): React.CSSProperties => ({
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    border: "1px solid rgba(15,23,42,0.12)",
+    background: "rgba(255,255,255,0.92)",
+    color: "#0f172a",
+    display: "grid",
+    placeItems: "center",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+  });
 
   return (
     <div style={styles.page}>
@@ -751,121 +969,362 @@ export default function StudentDashboard() {
         {/* STATS */}
         <div className="statsGrid" style={styles.statsGrid}>
           <StatCard
-            icon={<span style={{ fontSize: 16 }}>🗂️</span>}
-            title="My Cases"
-            value={dashboard.myCounselings.length}
-            helper={
-              dashboard.latestCounseling
-                ? `Latest: ${formatDateTime(dashboard.latestCounseling.counseling_date)}`
-                : "No cases yet"
-            }
-          />
-          <StatCard
             icon={<span style={{ fontSize: 16 }}>📅</span>}
-            title="Next Session"
+            title="Group Counselling Sched"
             value={dashboard.nextSession ? "Scheduled" : "None"}
             helper={
               dashboard.nextSession
-                ? formatDateTime(
+                ? formatScheduleDateTime(
                     dashboard.nextSession.session_date ??
                       dashboard.nextSession.date,
+                    dashboard.nextSession.session_time ??
+                      dashboard.nextSession.time,
                   )
-                : "No upcoming sessions"
+                : "No upcoming group counselling"
+            }
+          />
+          <StatCard
+            icon={<span style={{ fontSize: 16 }}>📤</span>}
+            title="Referrals Submitted"
+            value={dashboard.submittedReferrals.length}
+            helper={
+              dashboard.submittedReferrals[0]
+                ? `Latest: ${formatDateTime(
+                    dashboard.submittedReferrals[0].referred_date ??
+                      dashboard.submittedReferrals[0].referredDate ??
+                      dashboard.submittedReferrals[0].created_at,
+                  )}`
+                : "No submitted referrals"
             }
           />
           <StatCard
             icon={<span style={{ fontSize: 16 }}>📩</span>}
-            title="Referrals"
-            value={dashboard.myReferrals.length}
+            title="Referrals Received"
+            value={dashboard.receivedReferrals.length}
             helper={
-              dashboard.myReferrals[0]
-                ? `Latest: ${formatDateTime(dashboard.myReferrals[0].referred_date)}`
-                : "No referrals recorded"
+              dashboard.receivedReferrals[0]
+                ? `Latest: ${formatDateTime(
+                    dashboard.receivedReferrals[0].referred_date ??
+                      dashboard.receivedReferrals[0].referredDate ??
+                      dashboard.receivedReferrals[0].created_at,
+                  )}`
+                : "No received referrals"
             }
           />
           <StatCard
-            icon={<span style={{ fontSize: 16 }}>📝</span>}
-            title="Survey"
-            value={dashboard.surveySubmitted ? "Done" : "Pending"}
-            helper={dashboard.surveySubmitted ? "Submitted" : "Not submitted"}
+            icon={<span style={{ fontSize: 16 }}>🗂️</span>}
+            title="Requested Counselling"
+            value={dashboard.latestCounseling?.status ?? "None"}
+            helper={
+              dashboard.latestCounseling
+                ? `Latest: ${formatDateTime(
+                    dashboard.latestCounseling.counseling_date ??
+                      dashboard.latestCounseling.date,
+                  )}`
+                : "No counselling requests"
+            }
           />
         </div>
 
+        <Card
+          title="Schedule Calendar"
+          right={
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}
+                style={calendarNavButton(scheduleCollapsed)}
+                aria-label="Previous month"
+                disabled={scheduleCollapsed}
+              >
+                <ChevronLeft size={17} />
+              </button>
+              <div
+                style={{
+                  minWidth: 150,
+                  textAlign: "center",
+                  fontWeight: 950,
+                  color: "#0f172a",
+                  fontSize: 13,
+                }}
+              >
+                {calendarMonth.toLocaleDateString(undefined, {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}
+                style={calendarNavButton(scheduleCollapsed)}
+                aria-label="Next month"
+                disabled={scheduleCollapsed}
+              >
+                <ChevronRight size={17} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setScheduleCollapsed((current) => !current)}
+                style={calendarNavButton()}
+                aria-label={scheduleCollapsed ? "Expand calendar" : "Collapse calendar"}
+                title={scheduleCollapsed ? "Expand calendar" : "Collapse calendar"}
+              >
+                {scheduleCollapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
+              </button>
+            </div>
+          }
+        >
+          {scheduleCollapsed ? (
+            <div
+              style={{
+                borderRadius: 14,
+                border: "1px dashed rgba(15,23,42,0.14)",
+                background: "rgba(248,250,252,0.75)",
+                padding: "12px 14px",
+                color: "#64748b",
+                fontSize: 12.5,
+              }}
+            >
+              Calendar hidden. Use the collapse icon to expand the schedule view again.
+            </div>
+          ) : (
+            <div className="studentCalendarGrid" style={styles.calendarGrid}>
+              <div style={styles.calendarWrap}>
+                <div style={styles.weekdayGrid}>
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+                    <div key={label} style={styles.weekdayCell}>
+                      {label}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="studentCalendarCells" style={styles.calendarGridCells}>
+                  {calendarCells.map((cell) => (
+                    <button
+                      key={cell.key}
+                      type="button"
+                      onClick={() => setSelectedDateKey(cell.key)}
+                      title={cell.tooltip}
+                      style={{
+                        minHeight: 96,
+                        borderRadius: 16,
+                        border: cell.isSelected
+                          ? "1px solid rgba(37,99,235,1)"
+                          : cell.isToday
+                            ? "1px solid rgba(37,99,235,0.25)"
+                            : "1px solid rgba(15,23,42,0.08)",
+                        background: cell.isSelected
+                          ? "linear-gradient(180deg, rgba(219,234,254,0.86) 0%, rgba(255,255,255,0.96) 100%)"
+                          : cell.isCurrentMonth
+                            ? "rgba(255,255,255,0.92)"
+                            : "rgba(241,245,249,0.78)",
+                        color: cell.isCurrentMonth ? "#0f172a" : "rgba(15,23,42,0.42)",
+                        padding: 10,
+                        textAlign: "left",
+                        cursor: "pointer",
+                        display: "grid",
+                        alignContent: "space-between",
+                        gap: 10,
+                        boxShadow: cell.isSelected
+                          ? "0 12px 24px rgba(37,99,235,0.14)"
+                          : "none",
+                      }}
+                      aria-label={`Select ${cell.key}`}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 900,
+                            color: cell.isToday ? "#1d4ed8" : undefined,
+                          }}
+                        >
+                          {cell.label}
+                        </span>
+                        {cell.count > 0 && (
+                          <span
+                            style={{
+                              minWidth: 22,
+                              height: 22,
+                              borderRadius: 999,
+                              padding: "0 7px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11.5,
+                              fontWeight: 900,
+                              background: "rgba(37,99,235,0.12)",
+                              color: "#1d4ed8",
+                            }}
+                          >
+                            {cell.count}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: "grid", gap: 8 }}>
+                        <div
+                          style={{
+                            height: 6,
+                            borderRadius: 999,
+                            background:
+                              cell.count > 0
+                                ? "linear-gradient(90deg, rgba(37,99,235,0.9) 0%, rgba(251,191,36,0.85) 100%)"
+                                : "rgba(15,23,42,0.06)",
+                          }}
+                        />
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            lineHeight: 1.35,
+                            color: cell.count > 0 ? "#0f172a" : "#64748b",
+                            fontWeight: cell.count > 0 ? 700 : 500,
+                          }}
+                        >
+                          {cell.count > 0
+                            ? `${cell.count} scheduled item${cell.count > 1 ? "s" : ""}`
+                            : "No schedules"}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={styles.agendaColumn}>
+                <div style={styles.agendaCard}>
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <div style={{ fontSize: 15, fontWeight: 950, color: "#0f172a" }}>
+                      {formatDateLong(selectedDateKey)}
+                    </div>
+                    <div style={styles.muted}>
+                      {selectedDateItems.length > 0
+                        ? `${selectedDateItems.length} scheduled item${selectedDateItems.length > 1 ? "s" : ""} on this date`
+                        : "No scheduled items on the selected date."}
+                    </div>
+                  </div>
+
+                  <div style={styles.agendaList}>
+                    {selectedDateItems.length === 0 ? (
+                      <EmptyState
+                        title="No schedule selected"
+                        subtitle="Pick a highlighted date to inspect your schedule."
+                      />
+                    ) : (
+                      selectedDateItems.map((item) => (
+                        <div key={item.id} style={styles.agendaRow}>
+                          <div
+                            style={{
+                              width: 9,
+                              height: 42,
+                              borderRadius: 999,
+                              background: item.accent,
+                            }}
+                          />
+                          <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span style={{ fontWeight: 900, color: "#0f172a" }}>
+                                {item.title}
+                              </span>
+                              <span style={styles.chip}>{item.type}</span>
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                color: "#64748b",
+                                fontSize: 12.5,
+                              }}
+                            >
+                              <Clock3 size={14} />
+                              <span>{item.timeLabel}</span>
+                            </div>
+                            <div style={styles.muted}>{item.detail}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div style={styles.agendaCard}>
+                  <div style={{ fontSize: 14, fontWeight: 950, color: "#0f172a" }}>
+                    Next Up
+                  </div>
+                  {upcomingAgenda.length === 0 ? (
+                    <div style={styles.muted}>No upcoming schedules recorded yet.</div>
+                  ) : (
+                    <div style={styles.agendaList}>
+                      {upcomingAgenda.map((item) => (
+                        <div key={`${item.id}-next`} style={styles.agendaRow}>
+                          <div
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 12,
+                              background: "rgba(15,23,42,0.04)",
+                              display: "grid",
+                              placeItems: "center",
+                              color: item.accent,
+                            }}
+                          >
+                            {item.type === "Referral Meeting" ? (
+                              <FileText size={16} />
+                            ) : item.type === "Group Counselling" ? (
+                              <UsersRound size={16} />
+                            ) : (
+                              <CalendarDays size={16} />
+                            )}
+                          </div>
+                          <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                            <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                              {item.title}
+                            </div>
+                            <div style={styles.muted}>
+                              {item.type} · {formatDateShort(item.dateKey)} ·{" "}
+                              {item.timeLabel}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+
         {/* GRID */}
         <div className="grid12" style={styles.dashboardGrid}>
-          {/* Activity Overview */}
-          <div style={{ gridColumn: "span 8", minHeight: 250 }}>
-            <Card title="Activity Overview">
-              <div style={{ height: 170 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={activityGraphData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="name" />
-                    <Tooltip />
-                    <Line
-                      type="monotone"
-                      dataKey="activity"
-                      stroke="#1d4ed8"
-                      strokeWidth={3}
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div style={styles.divider} />
-              <div style={styles.muted}>
-                A quick view of your recent activity.
-              </div>
-            </Card>
-          </div>
-
-          {/* Survey Progress */}
-          <div style={{ gridColumn: "span 4", minHeight: 250 }}>
-            <Card
-              title="Survey Progress"
-              right={<span style={styles.pill}>{surveyPercent}%</span>}
-            >
-              <div style={{ display: "grid", gap: 8 }}>
-                <div style={{ width: "100%", height: 150 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        innerRadius={45}
-                        outerRadius={62}
-                        paddingAngle={2}
-                        startAngle={90}
-                        endAngle={-270}
-                      >
-                        {pieData.map((_, i) => (
-                          <Cell key={i} fill={pieColors[i]} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div style={{ fontWeight: 950, fontSize: 13 }}>
-                  {dashboard.surveySubmitted ? "Completed ✅" : "Not submitted"}
-                </div>
-                <div style={styles.muted}>
-                  {dashboard.surveySubmitted
-                    ? `Submitted on ${formatDateTime(dashboard.latestSurvey?.submitted_at)}.`
-                    : "Please complete your survey when available."}
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Upcoming Sessions Carousel */}
           <div style={{ gridColumn: "span 6", minHeight: 210 }}>
             <Carousel
-              title="Upcoming Student Circles"
+              title="Group Counselling Schedule"
               items={carouselSessions}
               emptyTitle="No upcoming sessions"
-              emptySubtitle="If you join a Student Circle, it will show here."
+              emptySubtitle="If you join a Group Counselling session, it will show here."
               render={(s: AnyRecord) => (
                 <>
                   <div
@@ -887,34 +1346,93 @@ export default function StudentDashboard() {
             />
           </div>
 
-          {/* Recent Activity Carousel */}
           <div style={{ gridColumn: "span 6", minHeight: 210 }}>
-            <Carousel
-              title="Recent Activity"
-              items={carouselActivity}
-              emptyTitle="No activity yet"
-              emptySubtitle="Once you have actions, you’ll see them here."
-              render={(a: AnyRecord) => (
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={styles.iconBubble}>
-                    {a.kind === "counseling"
-                      ? "🗂️"
-                      : a.kind === "referral"
-                        ? "📩"
-                        : a.kind === "session"
-                          ? "👥"
-                          : "📝"}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 950, fontSize: 13 }}>
-                      {a.title}
+            <Card
+              title="Referrals Submitted and Received"
+              right={
+                <span style={styles.pill}>
+                  {dashboard.submittedReferrals.length} submitted /{" "}
+                  {dashboard.receivedReferrals.length} received
+                </span>
+              }
+            >
+              {referralRows.length ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {referralRows.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: 10,
+                        alignItems: "center",
+                        padding: "10px 0",
+                        borderBottom: "1px solid rgba(15,23,42,0.08)",
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 950, fontSize: 13 }}>
+                          {item.reason}
+                        </div>
+                        <div style={styles.muted}>{item.date}</div>
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          justifyContent: "flex-end",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={styles.chip}>{item.direction}</span>
+                        <StatusChip status={item.status} />
+                      </div>
                     </div>
-                    <div style={styles.muted}>{a.meta}</div>
-                  </div>
-                  <span style={styles.chip}>⏱ {a.date}</span>
+                  ))}
                 </div>
+              ) : (
+                <EmptyState
+                  title="No referrals yet"
+                  subtitle="Submitted and received referrals will appear here."
+                />
               )}
-            />
+            </Card>
+          </div>
+
+          <div style={{ gridColumn: "span 12", minHeight: 210 }}>
+            <Card title="Requested Counselling Status">
+              {counsellingRows.length ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {counsellingRows.map((item) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: 10,
+                        alignItems: "center",
+                        padding: "10px 0",
+                        borderBottom: "1px solid rgba(15,23,42,0.08)",
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 950, fontSize: 13 }}>
+                          {item.reason}
+                        </div>
+                        <div style={styles.muted}>{item.date}</div>
+                      </div>
+                      <StatusChip status={item.status} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title="No counselling requests"
+                  subtitle="Your requested counselling status will show here."
+                />
+              )}
+            </Card>
           </div>
         </div>
       </div>

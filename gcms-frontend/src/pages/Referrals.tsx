@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { CalendarDays, Eye, FileText, History as HistoryIcon, List, Plus, Search, X } from "lucide-react";
+import {
+  CalendarDays,
+  CheckSquare,
+  Eye,
+  FileDown,
+  FileText,
+  History as HistoryIcon,
+  List,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import Modal from "../components/Modal";
 import DropdownSelect from "../components/DropdownSelect";
 import FormattedDateInput from "../components/FormattedDateInput";
@@ -14,18 +25,26 @@ import {
 } from "../lib/entitiesApi";
 import { postJSON } from "../lib/api";
 import { matchesSearchPrefix } from "../lib/searchPrefix";
-import {
-  normalizeSentenceCaseName,
-  toSentenceCaseNameInput,
-} from "../lib/nameCase";
+import { toSentenceCaseNameInput } from "../lib/nameCase";
 import {
   buildReferralReasonPayload,
   DEFAULT_REFERRAL_REASON_OPTIONS,
   mergeReferralReasonOptions,
   OTHER_REFERRAL_REASON_LABEL,
 } from "../lib/referralReasons";
-import { canApproveSystemReferrals } from "../lib/referralApproval";
+import {
+  canApproveSystemReferrals,
+  canViewEverySystemReferral,
+} from "../lib/referralApproval";
+import {
+  canCreateSystemReferral,
+  isSupportedReferralTargetUser,
+} from "../lib/referralScope";
 import { referralStatusLabel } from "../lib/referralStatus";
+import {
+  canPrintReferralCallSlip,
+  downloadReferralCallSlipWord,
+} from "../lib/referralCallSlipPrint";
 
 type Role =
   | "ADMIN"
@@ -66,6 +85,9 @@ type Referral = {
 
   referredDate?: string | null; // scheduled date after approval
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string; // ERD: reason (stored as comma-separated text)
   notes?: string;
   status: "Pending" | "Approved" | "Complete";
@@ -85,6 +107,7 @@ const COLLEGES_KEY = "gcms_mock_colleges_v1";
 const YEARS_KEY = "gcms_mock_academic_years_v1";
 const YL_KEY = "gcms_mock_year_levels_v1";
 const REF_KEY = "gcms_mock_referrals_v1";
+const BULK_REFERRAL_UPDATE_ID = -1;
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -150,15 +173,15 @@ function parseSortTimestamp(
 }
 
 function compareNewestReferrals(a: Referral, b: Referral): number {
-  const byCreatedAt =
-    parseSortTimestamp(b.createdAt, b.referredTime, b.referredDate) -
-    parseSortTimestamp(a.createdAt, a.referredTime, a.referredDate);
-  if (byCreatedAt !== 0) return byCreatedAt;
-
   const bySchedule =
     parseSortTimestamp(b.referredDate, b.referredTime, b.createdAt) -
     parseSortTimestamp(a.referredDate, a.referredTime, a.createdAt);
   if (bySchedule !== 0) return bySchedule;
+
+  const byCreatedAt =
+    parseSortTimestamp(b.createdAt, b.referredTime, b.referredDate) -
+    parseSortTimestamp(a.createdAt, a.referredTime, a.referredDate);
+  if (byCreatedAt !== 0) return byCreatedAt;
 
   return b.id - a.id;
 }
@@ -331,6 +354,42 @@ function formatTimeShort(value?: string | null) {
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
+function toTimeMinutes(value?: string | null): number | null {
+  if (!value) return null;
+  const [hourPart, minutePart] = String(value).split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return hours * 60 + minutes;
+}
+
+function findReferralScheduleConflict(
+  items: Referral[],
+  candidate: {
+    referralId: number;
+    referredDate: string;
+    referredTime: string;
+  },
+): Referral | null {
+  const candidateDateKey = toDateKey(candidate.referredDate);
+  const candidateMinutes = toTimeMinutes(candidate.referredTime);
+
+  if (!candidateDateKey || candidateMinutes === null) return null;
+
+  return (
+    items.find((item) => {
+      if (item.id === candidate.referralId) return false;
+      if (item.status === "Complete") return false;
+      if (toDateKey(item.referredDate) !== candidateDateKey) return false;
+
+      const existingMinutes = toTimeMinutes(item.referredTime);
+      if (existingMinutes === null) return false;
+
+      return Math.abs(existingMinutes - candidateMinutes) < 60;
+    }) ?? null
+  );
+}
+
 function fullNameOfUser(u?: { fname: string; mname?: string; lname: string }) {
   if (!u) return "Unknown";
   return `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`.trim();
@@ -399,6 +458,9 @@ function normalizeReferral(item: {
   yearLevelId: number;
   referredDate?: string | null;
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string;
   notes?: string;
   status: unknown;
@@ -419,6 +481,9 @@ function normalizeReferrals(items: Array<{
   yearLevelId: number;
   referredDate?: string | null;
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string;
   notes?: string;
   status: unknown;
@@ -449,6 +514,9 @@ function mergeReferralRecords(apiItems: Referral[], cachedItems: Referral[]): Re
       status: cached.status ?? item.status,
       referredDate: item.referredDate ?? cached.referredDate ?? null,
       referredTime: cached.referredTime ?? item.referredTime,
+      approvedAt: item.approvedAt ?? cached.approvedAt ?? null,
+      scheduleUpdatedAt: item.scheduleUpdatedAt ?? cached.scheduleUpdatedAt ?? null,
+      completedAt: item.completedAt ?? cached.completedAt ?? null,
       notes: cached.notes ?? item.notes,
     });
   });
@@ -465,6 +533,41 @@ function getReferralScheduleDateTime(referral: {
   const parsed = new Date(`${datePart}T${timePart}:00`);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed;
+}
+
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toTimeInputValue(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function buildBulkApprovalSchedule(
+  items: Referral[],
+  startDate: string,
+  startTime: string,
+) {
+  const start = getReferralScheduleDateTime({
+    referredDate: startDate,
+    referredTime: startTime,
+  });
+  if (!start) return [];
+
+  return items.map((referral, index) => {
+    const scheduledAt = new Date(start);
+    scheduledAt.setHours(start.getHours() + index);
+    return {
+      referral,
+      referredDate: toDateInputValue(scheduledAt),
+      referredTime: toTimeInputValue(scheduledAt),
+    };
+  });
 }
 
 function hasReferralReachedScheduledSession(referral: {
@@ -497,10 +600,22 @@ export default function Referrals({
 }: ReferralsProps = {}) {
   const authUser = useAuthStore((s) => s.user);
   const canApproveReferrals = canApproveSystemReferrals(authUser);
+  const canViewAllSystemReferrals = canViewEverySystemReferral(authUser);
+  const canCreateReferrals = canCreateSystemReferral(authUser);
   const [searchParams, setSearchParams] = useSearchParams();
   const isTeacherPortal =
     authUser?.role === "TEACHER" ||
     authUser?.role === "NON_TEACHING_PERSONNEL";
+  const referralPortalTitle = useMemo(() => {
+    if (authUser?.role === "TEACHER") return "Teacher Referral Portal";
+    if (authUser?.role === "NON_TEACHING_PERSONNEL") {
+      return "Non-Teaching Personnel Referral Portal";
+    }
+    return "Referral Management Portal";
+  }, [authUser?.role]);
+  const referralPortalSubtitle = isTeacherPortal
+    ? "Submit student guidance referrals and track the status of your submitted referrals."
+    : "Review, monitor, and manage guidance referrals submitted for students.";
   const users = useMemo<User[]>(() => {
     const base = load<User[]>(USERS_KEY, []);
     if (!authUser) return base;
@@ -542,7 +657,7 @@ export default function Referrals({
       users.filter(
         (u) =>
           u.role === "STUDENT" &&
-          !Boolean((u as User & { isArchived?: boolean }).isArchived),
+          !(u as User & { isArchived?: boolean }).isArchived,
       ),
     [users],
   );
@@ -706,10 +821,20 @@ export default function Referrals({
     };
   }, []);
 
+  const scopedSystemReferrals = useMemo(
+    () =>
+      referrals.filter((referral) =>
+        isSupportedReferralTargetUser(users.find((u) => u.id === referral.studentId)),
+      ),
+    [referrals, users],
+  );
+
   const visibleReferrals = useMemo(() => {
     const scoped = isTeacherPortal
-      ? referrals.filter((r) => r.referredByUserId === authUser?.id)
-      : referrals
+      ? scopedSystemReferrals.filter((r) => r.referredByUserId === authUser?.id)
+      : !canViewAllSystemReferrals
+        ? []
+      : scopedSystemReferrals
           .filter((r) => r.academicYearId === selectedAyId)
           .filter((r) => (filterCollegeId ? r.collegeId === filterCollegeId : true))
           .filter((r) => {
@@ -738,8 +863,9 @@ export default function Referrals({
 
     return scoped.sort(compareNewestReferrals);
   }, [
-    referrals,
+    scopedSystemReferrals,
     isTeacherPortal,
+    canViewAllSystemReferrals,
     authUser?.id,
     selectedAyId,
     filterCollegeId,
@@ -759,8 +885,10 @@ export default function Referrals({
   );
   const calendarBaseReferrals = useMemo(() => {
     const scoped = isTeacherPortal
-      ? referrals.filter((r) => r.referredByUserId === authUser?.id)
-      : referrals
+      ? scopedSystemReferrals.filter((r) => r.referredByUserId === authUser?.id)
+      : !canViewAllSystemReferrals
+        ? []
+      : scopedSystemReferrals
           .filter((r) => r.academicYearId === selectedAyId)
           .filter((r) => (filterCollegeId ? r.collegeId === filterCollegeId : true))
           .filter((r) => {
@@ -786,8 +914,9 @@ export default function Referrals({
 
     return scoped.sort(compareNewestReferrals);
   }, [
-    referrals,
+    scopedSystemReferrals,
     isTeacherPortal,
+    canViewAllSystemReferrals,
     authUser?.id,
     selectedAyId,
     filterCollegeId,
@@ -812,6 +941,13 @@ export default function Referrals({
     return `${u.fname} ${u.mname ? u.mname + " " : ""}${u.lname}`.trim();
   };
 
+  const labelReferralStudentName = (referral: Referral) => {
+    const student = userById(referral.studentId);
+    return student
+      ? fullNameOfUser(student)
+      : extractLabeledValue(referral.notes, "Name") || "Unknown";
+  };
+
   // âœ… Reasons list (multi-select)
   // Create Modal
   const [open, setOpen] = useState(false);
@@ -820,15 +956,17 @@ export default function Referrals({
   const [approvalReferral, setApprovalReferral] = useState<Referral | null>(null);
   const [approvalDate, setApprovalDate] = useState("");
   const [approvalTime, setApprovalTime] = useState("");
+  const [approvalScheduleError, setApprovalScheduleError] = useState("");
+  const [selectedReferralIds, setSelectedReferralIds] = useState<number[]>([]);
+  const [bulkApprovalOpen, setBulkApprovalOpen] = useState(false);
+  const [bulkApprovalDate, setBulkApprovalDate] = useState("");
+  const [bulkApprovalTime, setBulkApprovalTime] = useState("");
+  const [bulkApprovalError, setBulkApprovalError] = useState("");
   const [referralReasonOptions, setReferralReasonOptions] = useState<string[]>(
     () => [...DEFAULT_REFERRAL_REASON_OPTIONS],
   );
   const dateCalendarWrapRef = useRef<HTMLDivElement | null>(null);
   const [studentId, setStudentId] = useState<number>(0);
-  const [targetName, setTargetName] = useState("");
-  const [targetType, setTargetType] = useState<
-    "STUDENT" | "TEACHER" | "NON_TEACHING"
-  >("STUDENT");
   const [targetCollegeId, setTargetCollegeId] = useState<number>(0);
   const [targetCourseId, setTargetCourseId] = useState<number>(0);
   const [referredByUserId, setReferredByUserId] = useState<number>(
@@ -879,6 +1017,46 @@ export default function Referrals({
     return () => window.removeEventListener("mousedown", onPointerDown);
   }, [showDateCalendar]);
 
+  const bulkPendingReferrals = useMemo(
+    () => activeReferrals.filter((referral) => referral.status === "Pending"),
+    [activeReferrals],
+  );
+  const bulkPendingReferralIds = useMemo(
+    () => bulkPendingReferrals.map((referral) => referral.id),
+    [bulkPendingReferrals],
+  );
+  const selectedReferralIdSet = useMemo(
+    () => new Set(selectedReferralIds),
+    [selectedReferralIds],
+  );
+  const selectedPendingReferrals = useMemo(
+    () =>
+      bulkPendingReferrals.filter((referral) =>
+        selectedReferralIdSet.has(referral.id),
+      ),
+    [bulkPendingReferrals, selectedReferralIdSet],
+  );
+  const allPendingSelected =
+    bulkPendingReferralIds.length > 0 &&
+    bulkPendingReferralIds.every((id) => selectedReferralIdSet.has(id));
+
+  useEffect(() => {
+    const pendingIds = new Set(bulkPendingReferralIds);
+    setSelectedReferralIds((current) =>
+      current.filter((id) => pendingIds.has(id)),
+    );
+  }, [bulkPendingReferralIds]);
+
+  const bulkApprovalSchedulePreview = useMemo(
+    () =>
+      buildBulkApprovalSchedule(
+        selectedPendingReferrals,
+        bulkApprovalDate,
+        bulkApprovalTime,
+      ),
+    [selectedPendingReferrals, bulkApprovalDate, bulkApprovalTime],
+  );
+
   const modalFilteredCourses = useMemo(
     () =>
       modalCollegeId
@@ -888,6 +1066,35 @@ export default function Referrals({
   );
   const labelCourse = (courseId: number) =>
     courses.find((course) => course.id === courseId)?.name ?? "-";
+  const openSystemReferralCallSlip = (referral: Referral) => {
+    if (!canPrintReferralCallSlip(referral)) return;
+
+    const student = userById(referral.studentId);
+    const referredBy = userById(referral.referredByUserId);
+    const courseFromNotes = extractLabeledValue(referral.notes, "Course");
+    const courseName =
+      courseFromNotes ||
+      (student ? labelCourse(userCourseId(student)) : "") ||
+      "-";
+    const yearLevelName =
+      yearLevels.find((item) => item.id === referral.yearLevelId)?.name ?? "";
+    const section = student ? userSection(student) : "";
+    const courseYearSection = [courseName, yearLevelName, section]
+      .filter((item) => item && item !== "-")
+      .join(" / ");
+
+    downloadReferralCallSlipWord({
+      referralId: referral.id,
+      studentName: labelReferralStudentName(referral),
+      studentEmail: student?.email,
+      courseYearSection,
+      scheduleDate: String(referral.referredDate || ""),
+      scheduleTime: String(referral.referredTime || ""),
+      reason: referral.reason,
+      referredByName: referredBy ? fullNameOfUser(referredBy) : "Guidance Office",
+      issuedDate: new Date().toISOString().slice(0, 10),
+    });
+  };
   const modalFilteredYearLevels = useMemo(
     () =>
       yearLevels.filter(
@@ -1009,21 +1216,14 @@ export default function Referrals({
   );
 
   useEffect(() => {
-    if (targetType === "NON_TEACHING") {
-      if (targetCollegeId) setTargetCollegeId(0);
-      if (targetCourseId) setTargetCourseId(0);
-      return;
-    }
+    if (!isTeacherPortal) return;
     if (!targetCollegeId && colleges[0]?.id) {
       setTargetCollegeId(colleges[0].id);
     }
-  }, [targetType, targetCollegeId, targetCourseId, colleges]);
+  }, [isTeacherPortal, targetCollegeId, colleges]);
 
   useEffect(() => {
-    if (targetType !== "STUDENT") {
-      if (targetCourseId) setTargetCourseId(0);
-      return;
-    }
+    if (!isTeacherPortal) return;
     if (!targetCollegeId) {
       if (targetCourseId) setTargetCourseId(0);
       return;
@@ -1031,7 +1231,44 @@ export default function Referrals({
     if (!teacherCourseOptions.some((c) => c.id === targetCourseId)) {
       setTargetCourseId(teacherCourseOptions[0]?.id ?? 0);
     }
-  }, [targetType, targetCollegeId, teacherCourseOptions, targetCourseId]);
+  }, [isTeacherPortal, targetCollegeId, teacherCourseOptions, targetCourseId]);
+
+  const teacherFilteredStudents = useMemo(() => {
+    const query = modalStudentQuery.trim();
+    return students.filter((s) => {
+      const isSelf = Boolean(authUser?.id) && s.id === authUser?.id;
+      const sid = userCourseId(s);
+      const fullName = `${s.fname} ${s.mname ? `${s.mname} ` : ""}${s.lname}`
+        .toLowerCase()
+        .trim();
+      const matchesCollege = !targetCollegeId || s.collegeId === targetCollegeId;
+      const matchesCourse = !targetCourseId || sid === targetCourseId;
+      const matchesQuery =
+        !query ||
+        matchesSearchPrefix(
+          query,
+          fullName,
+          s.email,
+          courses.find((course) => course.id === sid)?.name,
+          userSection(s),
+        );
+      return !isSelf && matchesCollege && matchesCourse && matchesQuery;
+    });
+  }, [
+    students,
+    targetCollegeId,
+    targetCourseId,
+    modalStudentQuery,
+    authUser?.id,
+    courses,
+  ]);
+
+  useEffect(() => {
+    if (!open || !isTeacherPortal) return;
+    if (!teacherFilteredStudents.some((s) => s.id === studentId)) {
+      setStudentId(teacherFilteredStudents[0]?.id ?? 0);
+    }
+  }, [open, isTeacherPortal, teacherFilteredStudents, studentId]);
 
   const referredByDisplay = useMemo(() => {
     if (authUser) return `${authUser.fname} ${authUser.lname}`.trim();
@@ -1050,12 +1287,6 @@ export default function Referrals({
     if (role === "ADMIN") return "Referred By Admin";
     return "Referred By STAFF";
   }, [authUser?.role]);
-
-  const personTypeLabel = (v: "STUDENT" | "TEACHER" | "NON_TEACHING") => {
-    if (v === "NON_TEACHING") return "Non Teaching Personnel";
-    if (v === "TEACHER") return "Teacher";
-    return "Student";
-  };
 
   const totalSubmittedCount = useMemo(
     () => visibleReferrals.length,
@@ -1087,6 +1318,7 @@ export default function Referrals({
     setApprovalReferral(referral);
     setApprovalDate(String(referral.referredDate || ""));
     setApprovalTime(String(referral.referredTime || ""));
+    setApprovalScheduleError("");
     setApprovalOpen(true);
   };
   const closeApprovalModal = () => {
@@ -1095,6 +1327,35 @@ export default function Referrals({
     setApprovalReferral(null);
     setApprovalDate("");
     setApprovalTime("");
+    setApprovalScheduleError("");
+  };
+  const toggleReferralSelection = (id: number) => {
+    setSelectedReferralIds((current) =>
+      current.includes(id)
+        ? current.filter((selectedId) => selectedId !== id)
+        : [...current, id],
+    );
+  };
+  const setAllPendingReferralSelection = (checked: boolean) => {
+    setSelectedReferralIds(checked ? bulkPendingReferralIds : []);
+  };
+  const openBulkApprovalModal = () => {
+    if (selectedPendingReferrals.length === 0) {
+      alert("Select at least one pending referral to approve.");
+      return;
+    }
+
+    setBulkApprovalDate("");
+    setBulkApprovalTime("");
+    setBulkApprovalError("");
+    setBulkApprovalOpen(true);
+  };
+  const closeBulkApprovalModal = () => {
+    if (statusUpdatingId !== null) return;
+    setBulkApprovalOpen(false);
+    setBulkApprovalDate("");
+    setBulkApprovalTime("");
+    setBulkApprovalError("");
   };
   const completeReferral = (referral: Referral) => {
     if (!hasReferralReachedScheduledSession({
@@ -1106,6 +1367,7 @@ export default function Referrals({
     }
 
     setStatusUpdatingId(referral.id);
+    const completedAt = new Date().toISOString();
     const minimumSpinnerDelay = new Promise<void>((resolve) => {
       window.setTimeout(resolve, 3000);
     });
@@ -1116,19 +1378,17 @@ export default function Referrals({
         status: "Complete",
         referredDate: referral.referredDate ?? undefined,
         referredTime: referral.referredTime ?? undefined,
+        completedAt,
       }),
       minimumSpinnerDelay,
     ])
       .then(([res]) => {
         const normalized = normalizeReferrals(res.referrals ?? []);
         const nextSource = normalized.length > 0 ? normalized : referrals;
-        const next = normalized.some(
-          (item) => item.id === referral.id && item.status === "Complete",
-        )
-          ? nextSource
-          : applyReferralPatch(nextSource, referral.id, {
-              status: "Complete",
-            });
+        const next = applyReferralPatch(nextSource, referral.id, {
+          status: "Complete",
+          completedAt,
+        });
         setReferrals(next);
         save(REF_KEY, next);
       })
@@ -1149,6 +1409,25 @@ export default function Referrals({
     const referral = approvalReferral;
     const nextApprovalDate = approvalDate;
     const nextApprovalTime = approvalTime;
+    const approvalTimestamp = new Date().toISOString();
+    const isReschedule =
+      referral.status === "Approved" &&
+      (String(referral.referredDate || "").trim() !== nextApprovalDate ||
+        String(referral.referredTime || "").trim() !== nextApprovalTime);
+    const conflict = findReferralScheduleConflict(referrals, {
+      referralId: referral.id,
+      referredDate: nextApprovalDate,
+      referredTime: nextApprovalTime,
+    });
+    if (conflict) {
+      const conflictStudentName = labelUserName(conflict.studentId);
+      setApprovalScheduleError(
+        `This schedule conflicts with ${conflictStudentName}'s referral on ${formatDateShort(conflict.referredDate)} at ${formatTimeShort(conflict.referredTime)}. Keep at least a 1-hour interval between referrals on the same day.`,
+      );
+      return;
+    }
+
+    setApprovalScheduleError("");
     setApprovalOpen(false);
     setStatusUpdatingId(referral.id);
     const minimumSpinnerDelay = new Promise<void>((resolve) => {
@@ -1161,21 +1440,22 @@ export default function Referrals({
         status: "Approved",
         referredDate: nextApprovalDate,
         referredTime: nextApprovalTime,
+        approvedAt: referral.approvedAt ?? approvalTimestamp,
+        scheduleUpdatedAt: isReschedule ? approvalTimestamp : referral.scheduleUpdatedAt ?? null,
       }),
       minimumSpinnerDelay,
     ])
       .then(([res]) => {
         const normalized = normalizeReferrals(res.referrals ?? []);
         const nextSource = normalized.length > 0 ? normalized : referrals;
-        const next = normalized.some(
-          (item) => item.id === referral.id && item.status === "Approved",
-        )
-          ? nextSource
-          : applyReferralPatch(nextSource, referral.id, {
-              status: "Approved",
-              referredDate: nextApprovalDate,
-              referredTime: nextApprovalTime,
-            });
+        const next = applyReferralPatch(nextSource, referral.id, {
+          status: "Approved",
+          referredDate: nextApprovalDate,
+          referredTime: nextApprovalTime,
+          approvedAt: referral.approvedAt ?? approvalTimestamp,
+          scheduleUpdatedAt: isReschedule ? approvalTimestamp : referral.scheduleUpdatedAt ?? null,
+          completedAt: referral.completedAt ?? null,
+        });
         setReferrals(next);
         save(REF_KEY, next);
         setApprovalReferral(null);
@@ -1189,6 +1469,104 @@ export default function Referrals({
         setStatusUpdatingId((current) => (current === referral.id ? null : current));
       });
   };
+  const saveBulkApprovalSchedule = async () => {
+    if (selectedPendingReferrals.length === 0) {
+      alert("Select at least one pending referral to approve.");
+      return;
+    }
+    if (!bulkApprovalDate || !bulkApprovalTime) {
+      alert("Please set the starting schedule date and time before approving the selected referrals.");
+      return;
+    }
+
+    const plans = buildBulkApprovalSchedule(
+      selectedPendingReferrals,
+      bulkApprovalDate,
+      bulkApprovalTime,
+    );
+    if (plans.length !== selectedPendingReferrals.length) {
+      setBulkApprovalError("The starting schedule is invalid.");
+      return;
+    }
+
+    const selectedIds = new Set(plans.map((plan) => plan.referral.id));
+    const externalReferrals = referrals.filter((item) => !selectedIds.has(item.id));
+    const conflictResult = plans
+      .map((plan) => ({
+        plan,
+        conflict: findReferralScheduleConflict(externalReferrals, {
+          referralId: plan.referral.id,
+          referredDate: plan.referredDate,
+          referredTime: plan.referredTime,
+        }),
+      }))
+      .find((result) => result.conflict);
+
+    if (conflictResult?.conflict) {
+      const selectedName = labelReferralStudentName(conflictResult.plan.referral);
+      const conflictStudentName = labelReferralStudentName(conflictResult.conflict);
+      setBulkApprovalError(
+        `${selectedName}'s schedule conflicts with ${conflictStudentName}'s referral on ${formatDateShort(conflictResult.conflict.referredDate)} at ${formatTimeShort(conflictResult.conflict.referredTime)}. Keep at least a 1-hour interval between referrals on the same day.`,
+      );
+      return;
+    }
+
+    setBulkApprovalError("");
+    setBulkApprovalOpen(false);
+    setStatusUpdatingId(BULK_REFERRAL_UPDATE_ID);
+
+    const approvalTimestamp = new Date().toISOString();
+    const minimumSpinnerDelay = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 3000);
+    });
+
+    try {
+      const [results] = await Promise.all([
+        Promise.all(
+          plans.map((plan) =>
+            updateReferral({
+              id: plan.referral.id,
+              status: "Approved",
+              referredDate: plan.referredDate,
+              referredTime: plan.referredTime,
+              approvedAt: plan.referral.approvedAt ?? approvalTimestamp,
+              scheduleUpdatedAt: plan.referral.scheduleUpdatedAt ?? null,
+            }),
+          ),
+        ),
+        minimumSpinnerDelay,
+      ]);
+
+      const lastResult = results[results.length - 1];
+      const normalized = normalizeReferrals(lastResult?.referrals ?? []);
+      const nextSource = normalized.length > 0 ? normalized : referrals;
+      const next = plans.reduce(
+        (items, plan) =>
+          applyReferralPatch(items, plan.referral.id, {
+            status: "Approved",
+            referredDate: plan.referredDate,
+            referredTime: plan.referredTime,
+            approvedAt: plan.referral.approvedAt ?? approvalTimestamp,
+            scheduleUpdatedAt: plan.referral.scheduleUpdatedAt ?? null,
+            completedAt: plan.referral.completedAt ?? null,
+          }),
+        nextSource,
+      );
+      setReferrals(next);
+      save(REF_KEY, next);
+      setSelectedReferralIds((current) =>
+        current.filter((id) => !selectedIds.has(id)),
+      );
+      setBulkApprovalDate("");
+      setBulkApprovalTime("");
+    } catch (e: any) {
+      alert(e?.message || "Failed to approve selected referrals.");
+    } finally {
+      setStatusUpdatingId((current) =>
+        current === BULK_REFERRAL_UPDATE_ID ? null : current,
+      );
+    }
+  };
   const handleReferralManageAction = (referral: Referral, action: string) => {
     if (!action) return;
     if (action === "approve" || action === "reschedule") {
@@ -1201,7 +1579,11 @@ export default function Referrals({
   };
 
   const handleCreate = async () => {
-    const normalize = (v: string) => v.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!canCreateReferrals) {
+      alert("Only teachers and non-teaching personnel can submit referrals.");
+      return;
+    }
+
     const { reasonText, customReasons, missingCustomReason } = referralReasonPayload;
 
     if (missingCustomReason) {
@@ -1210,98 +1592,48 @@ export default function Referrals({
     }
 
     if (isTeacherPortal) {
-      if (!targetName.trim() || !referredByUserId || selectedReasons.length === 0) return;
-      if ((targetType === "STUDENT" || targetType === "TEACHER") && !targetCollegeId) return;
-      if (targetType === "STUDENT" && !targetCourseId) return;
-
-      const allowedRoles =
-        targetType === "STUDENT"
-          ? ["STUDENT"]
-          : targetType === "TEACHER"
-            ? ["TEACHER"]
-            : ["STAFF", "ADMIN", "NON_TEACHING_PERSONNEL"];
-      const inputName = normalize(normalizeSentenceCaseName(targetName));
-      const targetUser = users.find((u) => {
-        if (!allowedRoles.includes(u.role)) return false;
-        const full = `${u.fname} ${u.mname ? `${u.mname} ` : ""}${u.lname}`;
-        const matchesName = normalize(full) === inputName;
-        const matchesCollege =
-          targetType === "NON_TEACHING" || !targetCollegeId
-            ? true
-            : Number(u.collegeId ?? 0) === targetCollegeId;
-        const matchesCourse =
-          targetType !== "STUDENT" || !targetCourseId
-            ? true
-            : userCourseId(u) === targetCourseId;
-        return matchesName && matchesCollege && matchesCourse;
-      });
-
-      if (!targetUser) {
-        alert("Name not found for the selected type. Please check the spelling.");
+      if (
+        !studentId ||
+        !targetCollegeId ||
+        !targetCourseId ||
+        !referredByUserId ||
+        selectedReasons.length === 0
+      ) {
         return;
       }
 
-      if (targetUser.id === referredByUserId) {
+      const selectedStudent =
+        teacherFilteredStudents.find((s) => s.id === studentId) ??
+        students.find((s) => s.id === studentId);
+
+      if (!selectedStudent) {
+        alert("Please select a student from the dropdown.");
+        return;
+      }
+
+      if (selectedStudent.id === referredByUserId) {
         alert("You cannot refer yourself.");
         return;
       }
 
-      let payloadCollegeId = 0;
-      if (targetType === "STUDENT" || targetType === "TEACHER") {
-        if (!targetCollegeId) {
-          alert("Please select a college.");
-          return;
-        }
-        payloadCollegeId = targetCollegeId;
-      } else {
-        payloadCollegeId = Number(targetUser.collegeId ?? colleges[0]?.id ?? 0);
-      }
-
-      const fallbackYearLevel =
-        yearLevels.find(
-          (yl) =>
-            yl.academicYearId === selectedAyId && yl.collegeId === payloadCollegeId,
-        ) ??
-        yearLevels.find((yl) => yl.academicYearId === selectedAyId) ??
-        yearLevels[0];
-
-      const payloadYearLevelId =
-        targetType === "STUDENT"
-          ? Number(targetUser.yearLevelId ?? fallbackYearLevel?.id ?? 0)
-          : Number(fallbackYearLevel?.id ?? 0);
+      const payloadCollegeId = Number(selectedStudent.collegeId ?? 0);
+      const payloadYearLevelId = Number(selectedStudent.yearLevelId ?? 0);
 
       if (!payloadCollegeId || !payloadYearLevelId) {
-        alert("Missing college or year level mapping. Please review inputs.");
+        alert("Selected student has no college or year level assigned.");
         return;
       }
 
-      const selectedCollegeName =
-        colleges.find((c) => c.id === payloadCollegeId)?.name ?? "";
-      const selectedCourseName =
-        courses.find((c) => c.id === targetCourseId)?.name ?? "";
-
-      const metadataBits = [
-        `Name: ${normalizeSentenceCaseName(targetName)}`,
-        `Type: ${personTypeLabel(targetType)}`,
-        (targetType === "STUDENT" || targetType === "TEACHER") && selectedCollegeName
-          ? `College: ${selectedCollegeName}`
-          : "",
-        targetType === "STUDENT" && selectedCourseName
-          ? `Course: ${selectedCourseName}`
-          : "",
-        notes.trim() ? `Notes: ${notes.trim()}` : "",
-      ].filter(Boolean);
-
       try {
         const res = await createReferral({
-          studentId: targetUser.id,
+          studentId: selectedStudent.id,
           referredByUserId,
           academicYearId: selectedAyId,
           collegeId: payloadCollegeId,
           yearLevelId: payloadYearLevelId,
           reason: reasonText,
           customReasons,
-          notes: metadataBits.join(" | "),
+          notes: notes.trim() ? notes.trim() : undefined,
         });
 
         const next = normalizeReferrals(res.referrals ?? []);
@@ -1315,10 +1647,10 @@ export default function Referrals({
           );
         }
 
-        setTargetName("");
-        setTargetType("STUDENT");
+        setStudentId(0);
         setTargetCollegeId(0);
         setTargetCourseId(0);
+        setModalStudentQuery("");
         setSelectedReasons([]);
         setNotes("");
         closeCreateModal();
@@ -1440,6 +1772,28 @@ export default function Referrals({
     background: "transparent",
     color: "var(--primary)",
     fontWeight: 800,
+    cursor: "pointer",
+  };
+  const bulkActionButton: React.CSSProperties = {
+    height: 40,
+    padding: "0 14px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "white",
+    color: "var(--primary)",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    fontWeight: 800,
+    fontSize: 12.5,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
+  const checkboxStyle: React.CSSProperties = {
+    width: 16,
+    height: 16,
+    accentColor: "var(--primary)",
     cursor: "pointer",
   };
   const referralStatusBody: React.CSSProperties = {
@@ -1730,11 +2084,29 @@ export default function Referrals({
       ? closedReferrals
       : activeReferrals;
   const showScheduleColumns = !isTeacherPortal;
+  const showBulkSelectionColumn =
+    canApproveReferrals &&
+    !historyOpen &&
+    !showClosedHistory &&
+    tableReferrals.some((referral) => referral.status === "Pending");
 
   const referralTable = (
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
         <tr>
+          {showBulkSelectionColumn && (
+            <th style={{ ...th, width: 44, textAlign: "center" }}>
+              <input
+                type="checkbox"
+                checked={allPendingSelected}
+                onChange={(e) => setAllPendingReferralSelection(e.target.checked)}
+                disabled={statusUpdatingId !== null || bulkPendingReferralIds.length === 0}
+                aria-label="Select all pending referrals"
+                title="Select all pending referrals"
+                style={checkboxStyle}
+              />
+            </th>
+          )}
           <th style={th}>Name</th>
           <th style={th}>Referred By</th>
           <th style={th}>Reason</th>
@@ -1748,7 +2120,10 @@ export default function Referrals({
       <tbody>
         {tableReferrals.length === 0 ? (
           <tr>
-            <td style={td} colSpan={showScheduleColumns ? 7 : 5}>
+            <td
+              style={td}
+              colSpan={(showScheduleColumns ? 7 : 5) + (showBulkSelectionColumn ? 1 : 0)}
+            >
               <span style={{ opacity: 0.8 }}>
                 {historyOpen || showClosedHistory
                   ? "No completed referrals found for this filter."
@@ -1762,8 +2137,7 @@ export default function Referrals({
           tableReferrals.map((r) => {
             const reasons = splitReasons(r.reason);
             const preview = reasons.slice(0, 2);
-            const student = userById(r.studentId);
-            const studentName = student ? fullNameOfUser(student) : extractLabeledValue(r.notes, "Name") || "Unknown";
+            const studentName = labelReferralStudentName(r);
             const isOverdue = isReferralOverdue(r);
             const rowTdStyle = isOverdue
               ? {
@@ -1774,6 +2148,21 @@ export default function Referrals({
 
             return (
               <tr key={r.id}>
+                {showBulkSelectionColumn && (
+                  <td style={{ ...td, ...(rowTdStyle ?? {}), textAlign: "center", width: 44 }}>
+                    {r.status === "Pending" ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedReferralIdSet.has(r.id)}
+                        onChange={() => toggleReferralSelection(r.id)}
+                        disabled={statusUpdatingId !== null}
+                        aria-label={`Select referral for ${studentName}`}
+                        title={`Select referral for ${studentName}`}
+                        style={checkboxStyle}
+                      />
+                    ) : null}
+                  </td>
+                )}
                 <td style={{ ...td, ...(rowTdStyle ?? {}) }}>
                   <div style={{ fontWeight: 500 }}>{studentName}</div>
                 </td>
@@ -1895,6 +2284,16 @@ export default function Referrals({
                         )}
                       </select>
                     )}
+                    {canViewAllSystemReferrals && canPrintReferralCallSlip(r) && (
+                      <ReferralActionButton
+                        baseStyle={iconAction}
+                        title="Download call slip as Word"
+                        ariaLabel="Download call slip as Word"
+                        onClick={() => openSystemReferralCallSlip(r)}
+                      >
+                        <FileDown size={16} />
+                      </ReferralActionButton>
+                    )}
                     <ReferralActionLink
                       to={`/app/referrals/${r.id}${filterQuery}`}
                       title="View referral"
@@ -1920,15 +2319,50 @@ export default function Referrals({
         {isTeacherPortal ? (
           <>
             <div>
-              <div style={label}>Name</div>
-              <input
-                value={targetName}
-                onChange={(e) =>
-                  setTargetName(toSentenceCaseNameInput(e.target.value))
-                }
-                placeholder="Type full name"
-                style={inputStyle}
-              />
+              <div style={label}>Search Student</div>
+              <div style={{ position: "relative" }}>
+                <Search
+                  size={16}
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "#64748b",
+                    pointerEvents: "none",
+                  }}
+                />
+                <input
+                  value={modalStudentQuery}
+                  onChange={(e) =>
+                    setModalStudentQuery(toSentenceCaseNameInput(e.target.value))
+                  }
+                  placeholder="Search student name"
+                  style={{
+                    ...inputStyle,
+                    paddingLeft: 38,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div style={label}>Student</div>
+              <DropdownSelect
+                value={studentId}
+                onChange={(e) => setStudentId(Number(e.target.value))}
+              >
+                <option value={0}>
+                  {teacherFilteredStudents.length
+                    ? "Select student"
+                    : "No students found"}
+                </option>
+                {teacherFilteredStudents.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {`${s.fname} ${s.mname ? s.mname + " " : ""}${s.lname}`}
+                  </option>
+                ))}
+              </DropdownSelect>
             </div>
 
             <div
@@ -1943,11 +2377,8 @@ export default function Referrals({
                 <DropdownSelect
                   value={targetCollegeId}
                   onChange={(e) => setTargetCollegeId(Number(e.target.value))}
-                  disabled={targetType === "NON_TEACHING"}
                 >
-                  <option value={0}>
-                    {targetType === "NON_TEACHING" ? "Not needed for this type" : "Select college"}
-                  </option>
+                  <option value={0}>Select college</option>
                   {colleges.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -1961,14 +2392,14 @@ export default function Referrals({
                 <DropdownSelect
                   value={targetCourseId}
                   onChange={(e) => setTargetCourseId(Number(e.target.value))}
-                  disabled={targetType !== "STUDENT" || !targetCollegeId}
+                  disabled={!targetCollegeId}
                 >
                   <option value={0}>
-                    {targetType !== "STUDENT"
-                      ? "Not needed for this type"
-                      : targetCollegeId
+                    {targetCollegeId
+                      ? teacherCourseOptions.length
                         ? "Select course"
-                        : "Select college first"}
+                        : "No courses found"
+                      : "Select college first"}
                   </option>
                   {teacherCourseOptions.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -1979,19 +2410,11 @@ export default function Referrals({
               </div>
             </div>
 
-            <div>
-              <div style={label}>Type</div>
-              <DropdownSelect
-                value={targetType}
-                onChange={(e) =>
-                  setTargetType(
-                    e.target.value as "STUDENT" | "TEACHER" | "NON_TEACHING",
-                  )
-                }
-              >
-                <option value="STUDENT">Student</option>
-              </DropdownSelect>
-            </div>
+            {teacherFilteredStudents.length === 0 && (
+              <div style={{ marginTop: -2, opacity: 0.8, fontSize: 13 }}>
+                No students found for the selected college and course.
+              </div>
+            )}
           </>
         ) : (
           <div>
@@ -2272,13 +2695,13 @@ export default function Referrals({
             style={primaryButton}
             disabled={
               isTeacherPortal
-                ? !targetName.trim() ||
+                ? teacherFilteredStudents.length === 0 ||
+                  !studentId ||
                   !referredByUserId ||
                   selectedReasons.length === 0 ||
                   referralReasonPayload.missingCustomReason ||
-                  ((targetType === "STUDENT" || targetType === "TEACHER") &&
-                    !targetCollegeId) ||
-                  (targetType === "STUDENT" && !targetCourseId)
+                  !targetCollegeId ||
+                  !targetCourseId
                 : modalFilteredStudents.length === 0 ||
                   !studentId ||
                   !referredByUserId ||
@@ -2287,18 +2710,19 @@ export default function Referrals({
             }
             title={
               isTeacherPortal
-                ? !targetName.trim()
-                  ? "Type name"
-                  : (targetType === "STUDENT" || targetType === "TEACHER") &&
-                      !targetCollegeId
-                    ? "Select college"
-                    : targetType === "STUDENT" && !targetCourseId
+                ? !targetCollegeId
+                  ? "Select college"
+                  : !targetCourseId
                     ? "Select course"
-                      : referralReasonPayload.missingCustomReason
+                    : teacherFilteredStudents.length === 0
+                      ? "No students found for this College + Course"
+                      : !studentId
+                        ? "Select a student"
+                        : referralReasonPayload.missingCustomReason
                           ? "Type the custom reason in Notes"
-                        : selectedReasons.length === 0
-                          ? "Select at least one reason"
-                          : ""
+                          : selectedReasons.length === 0
+                            ? "Select at least one reason"
+                            : ""
                 : modalFilteredStudents.length === 0
                   ? "No students found for this College + Course + Year Level"
                   : !studentId
@@ -2334,7 +2758,10 @@ export default function Referrals({
           <div style={label}>Scheduled Date</div>
           <FormattedDateInput
             value={approvalDate}
-            onChange={(e) => setApprovalDate(e.target.value)}
+            onChange={(e) => {
+              setApprovalDate(e.target.value);
+              setApprovalScheduleError("");
+            }}
             displayStyle={inputStyle}
           />
         </div>
@@ -2344,10 +2771,30 @@ export default function Referrals({
           <input
             type="time"
             value={approvalTime}
-            onChange={(e) => setApprovalTime(e.target.value)}
+            onChange={(e) => {
+              setApprovalTime(e.target.value);
+              setApprovalScheduleError("");
+            }}
             style={inputStyle}
           />
         </div>
+
+        {approvalScheduleError ? (
+          <div
+            style={{
+              borderRadius: 12,
+              border: "1px solid rgba(220, 38, 38, 0.24)",
+              background: "rgba(254, 242, 242, 0.95)",
+              color: "#b91c1c",
+              padding: "10px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.45,
+            }}
+          >
+            {approvalScheduleError}
+          </div>
+        ) : null}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button
@@ -2370,6 +2817,132 @@ export default function Referrals({
             }
           >
             Save Schedule
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  const bulkApprovalModal = (
+    <Modal
+      open={bulkApprovalOpen}
+      onClose={closeBulkApprovalModal}
+      title="Approve Selected Referrals"
+    >
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ fontSize: 13, color: "#475569", fontWeight: 700 }}>
+          {selectedPendingReferrals.length} referral
+          {selectedPendingReferrals.length === 1 ? "" : "s"} will be scheduled one hour apart.
+        </div>
+
+        <div>
+          <div style={label}>Starting Scheduled Date</div>
+          <FormattedDateInput
+            value={bulkApprovalDate}
+            onChange={(e) => {
+              setBulkApprovalDate(e.target.value);
+              setBulkApprovalError("");
+            }}
+            displayStyle={inputStyle}
+          />
+        </div>
+
+        <div>
+          <div style={label}>Starting Scheduled Time</div>
+          <input
+            type="time"
+            value={bulkApprovalTime}
+            onChange={(e) => {
+              setBulkApprovalTime(e.target.value);
+              setBulkApprovalError("");
+            }}
+            style={inputStyle}
+          />
+        </div>
+
+        {bulkApprovalSchedulePreview.length > 0 && (
+          <div
+            style={{
+              borderRadius: 12,
+              border: "1px solid rgba(15,23,42,0.08)",
+              background: "rgba(248,250,252,0.92)",
+              padding: "10px 12px",
+              display: "grid",
+              gap: 6,
+              color: "#334155",
+              fontSize: 12.5,
+              fontWeight: 700,
+            }}
+          >
+            {bulkApprovalSchedulePreview.slice(0, 5).map((plan) => (
+              <div
+                key={plan.referral.id}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>{labelReferralStudentName(plan.referral)}</span>
+                <span>
+                  {formatDateShort(plan.referredDate)} at {formatTimeShort(plan.referredTime)}
+                </span>
+              </div>
+            ))}
+            {bulkApprovalSchedulePreview.length > 5 && (
+              <div style={{ color: "#64748b" }}>
+                +{bulkApprovalSchedulePreview.length - 5} more
+              </div>
+            )}
+          </div>
+        )}
+
+        {bulkApprovalError ? (
+          <div
+            style={{
+              borderRadius: 12,
+              border: "1px solid rgba(220, 38, 38, 0.24)",
+              background: "rgba(254, 242, 242, 0.95)",
+              color: "#b91c1c",
+              padding: "10px 12px",
+              fontSize: 13,
+              fontWeight: 600,
+              lineHeight: 1.45,
+            }}
+          >
+            {bulkApprovalError}
+          </div>
+        ) : null}
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            onClick={closeBulkApprovalModal}
+            style={ghostButton}
+            disabled={statusUpdatingId !== null}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={saveBulkApprovalSchedule}
+            style={primaryButton}
+            disabled={
+              !bulkApprovalDate ||
+              !bulkApprovalTime ||
+              selectedPendingReferrals.length === 0 ||
+              statusUpdatingId !== null
+            }
+            title={
+              !bulkApprovalDate
+                ? "Select starting schedule date"
+                : !bulkApprovalTime
+                  ? "Select starting schedule time"
+                  : selectedPendingReferrals.length === 0
+                    ? "Select pending referrals"
+                    : ""
+            }
+          >
+            Save Schedules
           </button>
         </div>
       </div>
@@ -2425,7 +2998,7 @@ export default function Referrals({
               color: "var(--text)",
             }}
           >
-            Referral Management Portal
+            {referralPortalTitle}
           </h1>
           <p
             style={{
@@ -2435,8 +3008,7 @@ export default function Referrals({
               fontWeight: 600,
             }}
           >
-            Submit and monitor guidance referrals for students and school
-            personnel.
+            {referralPortalSubtitle}
           </p>
           <div
             style={{
@@ -2448,16 +3020,18 @@ export default function Referrals({
               flexWrap: "wrap",
             }}
           >
-            <ReferralActionButton
-              onClick={() => setOpen(true)}
-              title="Add Referral"
-              ariaLabel="Add Referral"
-              baseStyle={overviewActionButton}
-              active={open}
-            >
-              <Plus size={16} />
-              Add Referral
-            </ReferralActionButton>
+            {canCreateReferrals && (
+              <ReferralActionButton
+                onClick={() => setOpen(true)}
+                title="Add Referral"
+                ariaLabel="Add Referral"
+                baseStyle={overviewActionButton}
+                active={open}
+              >
+                <Plus size={16} />
+                Add Referral
+              </ReferralActionButton>
+            )}
             <ReferralActionButton
               onClick={() => setHistoryOpen(true)}
               title="View Referral History"
@@ -2513,7 +3087,7 @@ export default function Referrals({
 
         </section>
 
-        {createReferralModal}
+        {canCreateReferrals && createReferralModal}
         {historyModal}
       </div>
     );
@@ -2534,24 +3108,17 @@ export default function Referrals({
             Referrals
           </h2>
 
-          <ReferralActionButton
-            onClick={() => setOpen(true)}
-            active={open}
-            baseStyle={headerIconButton}
-            title="Create Referral"
-            ariaLabel="Create Referral"
-          >
-            <Plus size={22} />
-          </ReferralActionButton>
-          <ReferralActionButton
-            onClick={() => setShowClosedHistory((v) => !v)}
-            active={showClosedHistory}
-            baseStyle={headerIconButton}
-            title={showClosedHistory ? "Show active referrals" : "Show completed history"}
-            ariaLabel={showClosedHistory ? "Show active referrals" : "Show completed history"}
-          >
-            {showClosedHistory ? <List size={22} /> : <HistoryIcon size={22} />}
-          </ReferralActionButton>
+          {canCreateReferrals && (
+            <ReferralActionButton
+              onClick={() => setOpen(true)}
+              active={open}
+              baseStyle={headerIconButton}
+              title="Create Referral"
+              ariaLabel="Create Referral"
+            >
+              <Plus size={22} />
+            </ReferralActionButton>
+          )}
         </div>
       )}
 
@@ -2874,7 +3441,35 @@ export default function Referrals({
                 </div>
               </div>
 
-              {embedded && (
+              {canApproveReferrals &&
+                !historyOpen &&
+                !showClosedHistory &&
+                bulkPendingReferralIds.length > 0 && (
+                  <ReferralActionButton
+                    type="button"
+                    onClick={openBulkApprovalModal}
+                    active={bulkApprovalOpen}
+                    disabled={
+                      selectedPendingReferrals.length === 0 ||
+                      statusUpdatingId !== null
+                    }
+                    baseStyle={bulkActionButton}
+                    title={
+                      selectedPendingReferrals.length === 0
+                        ? "Select pending referrals"
+                        : "Approve selected referrals"
+                    }
+                    ariaLabel="Approve selected referrals"
+                  >
+                    <CheckSquare size={16} />
+                    Approve Selected
+                    {selectedPendingReferrals.length > 0
+                      ? ` (${selectedPendingReferrals.length})`
+                      : ""}
+                  </ReferralActionButton>
+                )}
+
+              {embedded && canCreateReferrals && (
                 <ReferralActionButton
                   onClick={() => setOpen(true)}
                   active={open}
@@ -2896,7 +3491,7 @@ export default function Referrals({
                 title={showClosedHistory ? "Show active referrals" : "Show completed history"}
                 ariaLabel={showClosedHistory ? "Show active referrals" : "Show completed history"}
               >
-                {showClosedHistory ? <List size={22} /> : <HistoryIcon size={22} />}
+                <HistoryIcon size={22} />
               </ReferralActionButton>
             )}
           </div>
@@ -2912,9 +3507,15 @@ export default function Referrals({
                     <FileText size={52} />
                   </div>
                 </div>
-                <div style={referralStatusTitle}>Updating Referral...</div>
+                <div style={referralStatusTitle}>
+                  {statusUpdatingId === BULK_REFERRAL_UPDATE_ID
+                    ? "Updating Referrals..."
+                    : "Updating Referral..."}
+                </div>
                 <div style={referralStatusSubtitle}>
-                  Please wait while we save the referral status update.
+                  {statusUpdatingId === BULK_REFERRAL_UPDATE_ID
+                    ? "Please wait while we save the selected referral updates."
+                    : "Please wait while we save the referral status update."}
                 </div>
               </div>
             </div>
@@ -2931,8 +3532,9 @@ export default function Referrals({
         </div>
       </div>
 
-      {createReferralModal}
+      {canCreateReferrals && createReferralModal}
       {approvalModal}
+      {bulkApprovalModal}
 
       <SuccessNoticeModal
         open={showCreateNotice}

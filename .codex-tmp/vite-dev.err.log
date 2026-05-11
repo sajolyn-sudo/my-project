@@ -1,0 +1,134 @@
+[2m2:19:45 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\src\pages\MyStudentCircleView.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (785:6)
+
+[0m [90m 783 |[31m       [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
+ [90m 784 |[31m
+[31m[1m>[22m[31m[90m 785 |[31m       [33m<[31m[33mbutton[31m
+ [90m     |[31m       [31m[1m^[22m[31m
+ [90m 786 |[31m         type[33m=[31m[32m"button"[31m
+ [90m 787 |[31m         title[33m=[31m[32m"Scan attendance QR code"[31m
+ [90m 788 |[31m         aria[33m-[31mlabel[33m=[31m[32m"Scan attendance QR code"[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/xampp/phpMyAdmin/Guidance and Couselling/Projects/GCMS/gcms-frontend/src/pages/MyStudentCircleView.tsx[39m:785:6
+[33m  783 |        </div>
+  784 |  
+  785 |        <button
+      |        ^
+  786 |          type="button"
+  787 |          title="Scan attendance QR code"[39m
+      at constructor (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13444:10)
+[2m2:21:09 PM[22m [31m[1m[vite][22m[39m [31mInternal server error: C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\src\pages\MyStudentCircleView.tsx: Adjacent JSX elements must be wrapped in an enclosing tag. Did you want a JSX fragment <>...</>? (785:6)
+
+[0m [90m 783 |[31m       [33m<[31m[33m/[31m[33mdiv[31m[33m>[31m
+ [90m 784 |[31m
+[31m[1m>[22m[31m[90m 785 |[31m       [33m<[31m[33mbutton[31m
+ [90m     |[31m       [31m[1m^[22m[31m
+ [90m 786 |[31m         type[33m=[31m[32m"button"[31m
+ [90m 787 |[31m         title[33m=[31m[32m"Scan attendance QR code"[31m
+ [90m 788 |[31m         aria[33m-[31mlabel[33m=[31m[32m"Scan attendance QR code"[31m[0m[39m
+  Plugin: [35mvite:react-babel[39m
+  File: [36mC:/xampp/phpMyAdmin/Guidance and Couselling/Projects/GCMS/gcms-frontend/src/pages/MyStudentCircleView.tsx[39m:785:6
+[33m  809 |                display: "grid",
+  810 |                placeItems: "center",
+  811 |                position: "relative",
+      |                    ^
+  812 |              }}
+  813 |            >[39m
+      at constructor (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:365:19)
+      at TypeScriptParserMixin.raise (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:6599:19)
+      at TypeScriptParserMixin.jsxParseElementAt (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4742:18)
+      at TypeScriptParserMixin.jsxParseElement (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4749:17)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4759:19)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9775:39
+      at TypeScriptParserMixin.tryParse (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:6907:20)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9775:18)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10800:39
+      at TypeScriptParserMixin.allowInAnd (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12426:12)
+      at TypeScriptParserMixin.parseMaybeAssignAllowIn (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10800:17)
+      at TypeScriptParserMixin.parseMaybeAssignAllowInOrVoidPattern (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12493:17)
+      at TypeScriptParserMixin.parseParenAndDistinguishExpression (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11675:28)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11331:23)
+      at TypeScriptParserMixin.parseExprAtom (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:4764:20)
+      at TypeScriptParserMixin.parseExprSubscripts (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11081:23)
+      at TypeScriptParserMixin.parseUpdate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11066:21)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:11046:23)
+      at TypeScriptParserMixin.parseMaybeUnary (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9837:18)
+      at TypeScriptParserMixin.parseMaybeUnaryOrPrivate (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10899:61)
+      at TypeScriptParserMixin.parseExprOps (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10904:23)
+      at TypeScriptParserMixin.parseMaybeConditional (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10881:23)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10831:21)
+      at TypeScriptParserMixin.parseMaybeAssign (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9786:20)
+      at TypeScriptParserMixin.parseExpressionBase (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10784:23)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10780:39
+      at TypeScriptParserMixin.allowInAnd (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12421:16)
+      at TypeScriptParserMixin.parseExpression (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:10780:17)
+      at TypeScriptParserMixin.parseReturnStatement (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13142:28)
+      at TypeScriptParserMixin.parseStatementContent (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12798:21)
+      at TypeScriptParserMixin.parseStatementContent (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9508:18)
+      at TypeScriptParserMixin.parseStatementLike (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12767:17)
+      at TypeScriptParserMixin.parseStatementListItem (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12747:17)
+      at TypeScriptParserMixin.parseBlockOrModuleBlockBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13316:61)
+      at TypeScriptParserMixin.parseBlockBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13309:10)
+      at TypeScriptParserMixin.parseBlock (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13297:10)
+      at TypeScriptParserMixin.parseFunctionBody (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12100:24)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12086:10)
+      at TypeScriptParserMixin.parseFunctionBodyAndFinish (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:9172:18)
+      at C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13445:12
+      at TypeScriptParserMixin.withSmartMixTopicForbiddingContext (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:12403:14)
+      at TypeScriptParserMixin.parseFunction (C:\xampp\phpMyAdmin\Guidance and Couselling\Projects\GCMS\gcms-frontend\node_modules\@babel\parser\lib\index.js:13444:10)

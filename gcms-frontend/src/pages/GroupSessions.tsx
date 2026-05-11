@@ -22,6 +22,7 @@ import { createGroupSession, fetchEntitiesBootstrap, listGroupSessions } from ".
 import { matchesSearchPrefix } from "../lib/searchPrefix";
 import { useAuthStore } from "../store/authStore";
 import { postJSON } from "../lib/api";
+import { canCreateGroupCounselling } from "../lib/staffPermissions";
 
 type Role =
   | "ADMIN"
@@ -153,15 +154,15 @@ function parseSortTimestamp(
 }
 
 function compareNewestGroupSessions(a: GroupSession, b: GroupSession): number {
-  const byCreatedAt =
-    parseSortTimestamp(b.createdAt, b.time, b.date) -
-    parseSortTimestamp(a.createdAt, a.time, a.date);
-  if (byCreatedAt !== 0) return byCreatedAt;
-
   const bySchedule =
     parseSortTimestamp(b.date, b.time, b.createdAt) -
     parseSortTimestamp(a.date, a.time, a.createdAt);
   if (bySchedule !== 0) return bySchedule;
+
+  const byCreatedAt =
+    parseSortTimestamp(b.createdAt, b.time, b.date) -
+    parseSortTimestamp(a.createdAt, a.time, a.date);
+  if (byCreatedAt !== 0) return byCreatedAt;
 
   return b.id - a.id;
 }
@@ -334,8 +335,14 @@ function formatSessionTimeLabel(value?: string | null): string {
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
-export default function GroupSessions() {
+type GroupSessionsProps = {
+  embedded?: boolean;
+};
+
+export default function GroupSessions({ embedded = false }: GroupSessionsProps = {}) {
   const currentUser = useAuthStore((s) => s.user);
+  const canCreateGroupCounsellingSession =
+    canCreateGroupCounselling(currentUser);
   const [searchParams, setSearchParams] = useSearchParams();
   const [users, setUsers] = useState<User[]>(() => load<User[]>(USERS_KEY, []));
   const [colleges, setColleges] = useState<College[]>(() =>
@@ -397,7 +404,7 @@ export default function GroupSessions() {
       users.filter(
         (u) =>
           u.role === "STUDENT" &&
-          !Boolean((u as User & { isArchived?: boolean }).isArchived),
+          !(u as User & { isArchived?: boolean }).isArchived,
       ),
     [users],
   );
@@ -410,6 +417,7 @@ export default function GroupSessions() {
   const selectedAyId = activeAyId;
   const [courses, setCourses] = useState<Course[]>([]);
   const [filterCollegeId, setFilterCollegeId] = useState<number>(() => {
+    if (embedded) return 0;
     const fromQuery = parsePositiveInt(searchParams.get("collegeId"));
     if (fromQuery && colleges.some((c) => c.id === fromQuery)) return fromQuery;
     return 0;
@@ -422,7 +430,7 @@ export default function GroupSessions() {
     [courses, filterCollegeId],
   );
   const [filterCourseId, setFilterCourseId] = useState<number>(() =>
-    parsePositiveInt(searchParams.get("courseId")),
+    embedded ? 0 : parsePositiveInt(searchParams.get("courseId")),
   );
 
   useEffect(() => {
@@ -457,18 +465,19 @@ export default function GroupSessions() {
   );
 
   const [filterYearLevelId, setFilterYearLevelId] = useState<number>(() =>
-    parsePositiveInt(searchParams.get("yearLevelId")),
+    embedded ? 0 : parsePositiveInt(searchParams.get("yearLevelId")),
   );
   const [filterDate, setFilterDate] = useState<string>(() =>
-    String(searchParams.get("date") || "").trim(),
+    embedded ? "" : String(searchParams.get("date") || "").trim(),
   );
   const [showHistory, setShowHistory] = useState<boolean>(() => {
+    if (embedded) return false;
     return searchParams.get("tab") === "history";
   });
   const [showFilters, setShowFilters] = useState(false);
   const [showDateCalendar, setShowDateCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
-    const seed = String(searchParams.get("date") || "").trim();
+    const seed = embedded ? "" : String(searchParams.get("date") || "").trim();
     return startOfMonth(seed ? new Date(seed) : new Date());
   });
 
@@ -482,6 +491,7 @@ export default function GroupSessions() {
   }, [filteredYearLevels, filterYearLevelId]);
 
   useEffect(() => {
+    if (embedded) return;
     const next = new URLSearchParams();
     if (filterCollegeId) next.set("collegeId", String(filterCollegeId));
     if (filterCourseId) next.set("courseId", String(filterCourseId));
@@ -495,6 +505,7 @@ export default function GroupSessions() {
     filterYearLevelId,
     filterDate,
     showHistory,
+    embedded,
     setSearchParams,
   ]);
 
@@ -590,9 +601,10 @@ export default function GroupSessions() {
     members.filter((m) => m.groupSessionId === sessionId).length;
 
   const filterQuery = useMemo(() => {
+    if (embedded) return "?from=counseling";
     const qs = searchParams.toString();
     return qs ? `?${qs}` : "";
-  }, [searchParams]);
+  }, [searchParams, embedded]);
   const scheduleDateKeys = useMemo(
     () =>
       new Set(
@@ -670,7 +682,7 @@ export default function GroupSessions() {
     () =>
       users.filter(
         (u) =>
-          (u.role === "STAFF" || u.role === "STUDENT") && !Boolean(u.isArchived),
+          (u.role === "STAFF" || u.role === "STUDENT") && !u.isArchived,
       ),
     [users],
   );
@@ -912,7 +924,7 @@ export default function GroupSessions() {
   if (!time) missing.push("Time");
   if (!location.trim()) missing.push("Location");
   if (selectedStudentIds.length === 0) missing.push("At least 1 Student");
-  const canCreate = missing.length === 0;
+  const canCreate = canCreateGroupCounsellingSession && missing.length === 0;
 
   const focusAndScroll = (el: HTMLElement | null) => {
     if (!el) return;
@@ -934,6 +946,10 @@ export default function GroupSessions() {
 
   const handleCreate = async () => {
     // safety
+    if (!canCreateGroupCounsellingSession) {
+      setOpen(false);
+      return;
+    }
     if (!canCreate || creating) return;
 
     try {
@@ -982,7 +998,7 @@ export default function GroupSessions() {
       setShowFacilitatorPicker(false);
       setShowFacilitatorFilters(false);
     } catch (e: any) {
-      alert(e?.message || "Failed to create Student Circle.");
+      alert(e?.message || "Failed to create Group Counselling.");
     } finally {
       setCreating(false);
     }
@@ -1054,7 +1070,7 @@ export default function GroupSessions() {
     const dateIssued = fmtLongDate(new Date().toISOString().slice(0, 10));
     const scheduleTimeText = formatSessionTimeLabel(session.time);
     const scheduleText = `${fmtLongDate(session.date)} - ${scheduleTimeText}`;
-    const reasonText = "student circle";
+    const reasonText = "group counselling";
 
     const pages = chunks
       .map((chunk) => {
@@ -1553,35 +1569,42 @@ export default function GroupSessions() {
           display: "flex",
           gap: 12,
           alignItems: "center",
+          justifyContent: embedded ? "flex-end" : undefined,
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ fontWeight: 800, marginRight: "auto" }}>Student Circle</h2>
+        {!embedded && (
+          <h2 style={{ fontWeight: 800, marginRight: "auto" }}>
+            Group Counselling
+          </h2>
+        )}
 
-        <StudentCircleActionButton
-          onClick={() => {
-            setShowFacilitatorPicker(false);
-            setShowFacilitatorFilters(false);
-            setFacilitatorSearch("");
-            setFacilitatorRoleFilter("ALL");
-            setFacilitatorCollegeId(0);
-            setFacilitatorCourseId(0);
-            setStudentSearch("");
-            setOpen(true);
-          }}
-          active={open}
-          baseStyle={headerIconButton}
-          title="Create Student Circle"
-          ariaLabel="Create Student Circle"
-        >
-          <Plus size={22} />
-        </StudentCircleActionButton>
+        {canCreateGroupCounsellingSession && (
+          <StudentCircleActionButton
+            onClick={() => {
+              setShowFacilitatorPicker(false);
+              setShowFacilitatorFilters(false);
+              setFacilitatorSearch("");
+              setFacilitatorRoleFilter("ALL");
+              setFacilitatorCollegeId(0);
+              setFacilitatorCourseId(0);
+              setStudentSearch("");
+              setOpen(true);
+            }}
+            active={open}
+            baseStyle={headerIconButton}
+            title="Create Group Counselling"
+            ariaLabel="Create Group Counselling"
+          >
+            <Plus size={22} />
+          </StudentCircleActionButton>
+        )}
         <StudentCircleActionButton
           onClick={() => setShowHistory((v) => !v)}
           active={showHistory}
           baseStyle={headerIconButton}
-          title={showHistory ? "Show active Student Circles" : "Show Student Circle history"}
-          ariaLabel={showHistory ? "Show active Student Circles" : "Show Student Circle history"}
+          title={showHistory ? "Show active Group Counselling sessions" : "Show Group Counselling history"}
+          ariaLabel={showHistory ? "Show active Group Counselling sessions" : "Show Group Counselling history"}
         >
           {showHistory ? <List size={22} /> : <History size={22} />}
         </StudentCircleActionButton>
@@ -1599,7 +1622,9 @@ export default function GroupSessions() {
             flexWrap: "wrap",
           }}
         >
-          <h3 style={{ marginBottom: 0 }}>Student Circle</h3>
+          <h3 style={{ marginBottom: 0, marginRight: "auto" }}>
+            Group Counselling
+          </h3>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div ref={dateCalendarWrapRef} style={{ position: "relative" }}>
               <StudentCircleActionButton
@@ -1895,8 +1920,8 @@ export default function GroupSessions() {
                 <td style={td} colSpan={8}>
                   <span style={{ opacity: 0.8 }}>
                     {showHistory
-                      ? "No past Student Circles found for this filter."
-                      : "No active Student Circles found for this filter."}
+                      ? "No past Group Counselling sessions found for this filter."
+                      : "No active Group Counselling sessions found for this filter."}
                   </span>
                 </td>
               </tr>
@@ -1931,8 +1956,8 @@ export default function GroupSessions() {
                       </StudentCircleActionButton>
                       <StudentCircleActionLink
                         to={`/app/group-sessions/${s.id}${filterQuery}`}
-                        title="View Student Circle"
-                        ariaLabel="View Student Circle"
+                        title="View Group Counselling"
+                        ariaLabel="View Group Counselling"
                         baseStyle={iconButton}
                         keepBorder
                       >
@@ -1949,9 +1974,9 @@ export default function GroupSessions() {
 
       {/* Create Modal */}
       <Modal
-        open={open}
+        open={open && canCreateGroupCounsellingSession}
         onClose={creating ? () => {} : closeCreateModal}
-        title="Create Student Circle"
+        title="Create Group Counselling"
       >
         <div style={modalBody}>
           {creating && (
@@ -1964,9 +1989,9 @@ export default function GroupSessions() {
                     <Users size={52} />
                   </div>
                 </div>
-                <div style={createTitle}>Creating Student Circle...</div>
+                <div style={createTitle}>Creating Group Counselling...</div>
                 <div style={createSubtitle}>
-                  Please wait while we prepare the student circle.
+                  Please wait while we prepare the group counselling session.
                 </div>
               </div>
             </div>

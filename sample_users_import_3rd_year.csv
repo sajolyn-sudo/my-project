@@ -1,0 +1,8 @@
+first_name,middle_name,last_name,email,username,role,college_name,course_name,year_level_name,section,password
+Celine,,Abao,csv.celine.science@bisu.edu.ph,csv.celine.science,STUDENT,College of Science,Bachelor of Science in Computer Science,3rd Year,A,Welcome123
+Darren,,Lim,csv.darren.envsci@bisu.edu.ph,csv.darren.envsci,STUDENT,College of Science,Bachelor of Science in Environmental Science,3rd Year,B,Welcome123
+Faye,,Tutor,csv.faye.cte@bisu.edu.ph,csv.faye.cte,STUDENT,College of Teacher Education,Bachelor of Secondary Education Major in English,3rd Year,A,Welcome123
+Brent,,Sales,csv.brent.cbm@bisu.edu.ph,csv.brent.cbm,STUDENT,College of Business and Management,Bachelor of Science in Office Administration,3rd Year,B,Welcome123
+May,,Santos,csv.may.counselor@bisu.edu.ph,csv.may.counselor,COUNSELOR,,,,,Welcome123
+Noel,,Reyes,csv.noel.teacher@bisu.edu.ph,csv.noel.teacher,TEACHER,,,,,Welcome123
+Rica,,Flores,csv.rica.staff@bisu.edu.ph,csv.rica.staff,NON_TEACHING_PERSONNEL,,,,,Welcome123

@@ -16,6 +16,7 @@ import CounselingView from "./pages/CounselingView";
 
 import GroupSessions from "./pages/GroupSessions";
 import GroupSessionView from "./pages/GroupSessionView";
+import Reports from "./pages/Reports";
 
 import Referrals from "./pages/Referrals";
 import ReferralView from "./pages/ReferralView";
@@ -29,6 +30,8 @@ import StudentDashboard from "./pages/StudentDashboard";
 import Dashboard from "./pages/Dashboard";
 import MyCounseling from "./pages/MyCounseling";
 import MyCounselingView from "./pages/MyCounselingView";
+import MyStudentCircleView from "./pages/MyStudentCircleView";
+import StudentCircleAttendance from "./pages/StudentCircleAttendance";
 import MyReferrals from "./pages/MyReferrals";
 import MyReferralView from "./pages/MyReferralView";
 import Account from "./pages/Account";
@@ -38,6 +41,7 @@ import CounselorDashboard from "./pages/CounselorDashboard";
 import TeacherDashboard from "./pages/TeacherDashboard";
 
 import { useAuthStore } from "./store/authStore";
+import { canUseGroupCounselling, canViewReports } from "./lib/staffPermissions";
 
 function DashboardRouter() {
   const user = useAuthStore((s) => s.user);
@@ -64,14 +68,28 @@ function AppHomeRedirect() {
 }
 
 function ReferralsRoute() {
-  const user = useAuthStore((s) => s.user);
-  const role = String(user?.role || "").toUpperCase();
-
-  if (role === "ADMIN" || role === "STAFF") {
-    return <Navigate to="/app/counseling?tab=referrals" replace />;
-  }
-
   return <Referrals />;
+}
+
+function GroupSessionsRoute() {
+  const user = useAuthStore((s) => s.user);
+
+  if (!canUseGroupCounselling(user)) return <Navigate to="/403" replace />;
+  return <GroupSessions />;
+}
+
+function GroupSessionViewRoute() {
+  const user = useAuthStore((s) => s.user);
+
+  if (!canUseGroupCounselling(user)) return <Navigate to="/403" replace />;
+  return <GroupSessionView />;
+}
+
+function ReportsRoute() {
+  const user = useAuthStore((s) => s.user);
+
+  if (!canViewReports(user)) return <Navigate to="/403" replace />;
+  return <Reports />;
 }
 
 export default function App() {
@@ -80,6 +98,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<SignUp />} />
+      <Route path="/student-circle-attendance/:id" element={<StudentCircleAttendance />} />
       <Route path="/403" element={<Forbidden />} />
 
       <Route
@@ -180,7 +199,7 @@ export default function App() {
           path="group-sessions"
           element={
             <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
-              <GroupSessions />
+              <GroupSessionsRoute />
             </ProtectedRoute>
           }
         />
@@ -188,7 +207,15 @@ export default function App() {
           path="group-sessions/:id"
           element={
             <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
-              <GroupSessionView />
+              <GroupSessionViewRoute />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="reports"
+          element={
+            <ProtectedRoute allowedRoles={["STAFF", "ADMIN"]}>
+              <ReportsRoute />
             </ProtectedRoute>
           }
         />
@@ -238,6 +265,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRoles={["STUDENT"]}>
               <MyCounseling />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="my-counseling/student-circles/:id"
+          element={
+            <ProtectedRoute allowedRoles={["STUDENT"]}>
+              <MyStudentCircleView />
             </ProtectedRoute>
           }
         />

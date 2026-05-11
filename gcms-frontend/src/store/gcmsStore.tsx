@@ -9,6 +9,11 @@ export type User = {
   mname?: string;
   lname: string;
   email?: string;
+  collegeId?: number;
+  courseId?: number | null;
+  courseName?: string | null;
+  yearLevelId?: number;
+  section?: string | null;
 };
 
 export type CounselingStatus = "pending" | "ongoing" | "done" | "cancelled";
@@ -16,8 +21,9 @@ export type CounselingStatus = "pending" | "ongoing" | "done" | "cancelled";
 export type CounselingCase = {
   counseling_id: number;
   student_user_id: number;
-  counselor_user_id: number;
+  counselor_user_id?: number | null;
   counseling_date: string; // yyyy-mm-dd
+  counseling_time?: string;
   status: CounselingStatus;
   reason?: string;
   notes?: string;
@@ -38,7 +44,7 @@ export type Referral = {
   created_at?: string;
 };
 
-// ===== Student Circle
+// ===== Group Counselling
 export type GroupSession = {
   group_session_id: number;
   counselor_user_id: number;
@@ -197,7 +203,7 @@ const DEFAULT_REFERRALS: Referral[] = [
     referred_by_user_id: 2,
     referred_date: "2026-01-25",
     reason: "Emotional distress observed",
-    status: "ongoing",
+    status: "approved",
     notes: "Advised counseling session.",
   },
 ];
@@ -259,7 +265,7 @@ export const useGCMS = create<StoreState>((set, get) => ({
       return { referrals: next };
     }),
 
-  // ======= GROUP SESSIONS =======
+  // ======= GROUP COUNSELLING =======
   group_sessions: load<GroupSession[]>(
     GROUP_SESSIONS_KEY,
     DEFAULT_GROUP_SESSIONS,

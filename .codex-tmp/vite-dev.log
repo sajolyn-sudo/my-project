@@ -1,0 +1,236 @@
+
+> gcms-frontend@0.0.0 dev
+> vite --host 0.0.0.0 --port 5175
+
+
+  [32m[1mVITE[22m v7.3.1[39m  [2mready in [0m[1m726[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5175[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.1.47:[1m5175[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m12:08:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.tsx[22m
+[2m12:19:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:19:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:19:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:19:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:20:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:20:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:20:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:20:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:20:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m12:20:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx, /src/pages/Survey.tsx, /src/pages/StudentDashboard.tsx, /src/App.tsx, /src/components/ProtectedRoute.tsx, /src/pages/Login.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/TeacherDashboard.tsx, /src/pages/SignUp.tsx, /src/pages/Account.tsx, /src/pages/ReferralView.tsx, /src/components/AppLayout.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx[22m
+[2m12:20:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/lib/persistentState.ts[22m
+[2m12:20:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m12:21:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:27:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m12:30:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m12:31:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m12:39:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m12:40:00 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m12:40:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m12:40:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/ReferralView.tsx[22m
+[2m1:09:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m1:09:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m1:09:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m1:29:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/GroupSessionView.tsx, /src/pages/SignUp.tsx, /src/pages/Reports.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyCounseling.tsx[22m
+[2m1:29:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m1:31:16 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m1:34:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx, /src/pages/Reports.tsx[22m
+[2m1:55:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m2:02:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentCircleAttendance.tsx[22m
+[2m2:04:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m2:07:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m2:12:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m2:19:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:19:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:19:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:19:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:20:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:20:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:21:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m2:59:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/GroupSessionView.tsx, /src/pages/SignUp.tsx, /src/pages/Reports.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyCounseling.tsx[22m
+[2m3:00:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Login.tsx[22m
+[2m3:00:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentCircleAttendance.tsx[22m
+[2m3:00:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentCircleAttendance.tsx[22m
+[2m3:00:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:00:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:00:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:00:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:01:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:01:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:01:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:01:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:01:43 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m3:05:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentCircleAttendance.tsx[22m
+[2m3:09:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx, /src/pages/Survey.tsx, /src/pages/StudentDashboard.tsx, /src/App.tsx, /src/components/ProtectedRoute.tsx, /src/pages/Login.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/TeacherDashboard.tsx, /src/pages/SignUp.tsx, /src/pages/Account.tsx, /src/pages/ReferralView.tsx, /src/components/AppLayout.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx, /src/pages/StudentCircleAttendance.tsx[22m
+[2m3:09:30 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx[22m
+[2m3:09:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/components/ProtectedRoute.tsx, /src/pages/Login.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/TeacherDashboard.tsx, /src/pages/SignUp.tsx, /src/pages/Account.tsx, /src/pages/ReferralView.tsx, /src/components/AppLayout.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx, /src/pages/StudentCircleAttendance.tsx[22m
+[2m3:09:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/components/ProtectedRoute.tsx, /src/pages/Login.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/TeacherDashboard.tsx, /src/pages/SignUp.tsx, /src/pages/Account.tsx, /src/pages/ReferralView.tsx, /src/components/AppLayout.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx, /src/pages/StudentCircleAttendance.tsx[22m
+[2m3:09:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:09:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:10:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:10:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:10:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:10:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:11:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m3:18:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m4:05:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/GroupSessionView.tsx, /src/pages/SignUp.tsx, /src/pages/Reports.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyCounseling.tsx[22m
+[2m4:05:18 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx, /src/pages/Survey.tsx, /src/pages/StudentDashboard.tsx, /src/App.tsx, /src/components/ProtectedRoute.tsx, /src/pages/Login.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/TeacherDashboard.tsx, /src/pages/SignUp.tsx, /src/pages/Account.tsx, /src/pages/ReferralView.tsx, /src/components/AppLayout.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx, /src/pages/StudentCircleAttendance.tsx[22m
+[2m4:05:22 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/MyCounseling.tsx[22m
+[2m4:05:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m4:05:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m4:05:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounselingView.tsx[22m
+[2m4:05:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:06:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m4:08:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m4:57:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:00:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:00:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:10:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:15:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:15:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:15:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m5:28:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:28:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:29:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:29:18 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:29:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:29:43 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:31:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:34:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:34:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:30 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:35:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:36:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:36:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:36:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/StudentDashboard.tsx[22m
+[2m5:44:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Users.tsx[22m
+[2m5:44:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Users.tsx[22m
+[2m5:45:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Users.tsx[22m
+[2m5:53:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:53:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:54:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:55:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:55:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:55:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:55:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m5:56:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselorDashboard.tsx[22m
+[2m6:37:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.tsx[22m
+[2m6:38:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/components/AppLayout.tsx[22m
+[2m6:38:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx[22m
+[2m6:38:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m6:38:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m6:38:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m6:52:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m6:52:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m6:59:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m7:03:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m7:03:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m7:08:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m7:08:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Reports.tsx[22m
+[2m7:16:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m7:16:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m7:19:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m7:22:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:22:30 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:22:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:22:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:23:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:23:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:23:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m7:24:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:14:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyReferralView.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/Referrals.tsx[22m
+[2m9:14:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyReferralView.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/Referrals.tsx[22m
+[2m9:14:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/ReferralView.tsx[22m
+[2m9:15:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m9:15:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyReferralView.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/Referrals.tsx[22m
+[2m9:20:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:20:46 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:20:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:21:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:21:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:21:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessionView.tsx[22m
+[2m9:32:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/GroupSessionView.tsx, /src/pages/SignUp.tsx, /src/pages/Reports.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyCounseling.tsx[22m
+[2m9:32:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx, /src/pages/StudentCircleAttendance.tsx, /src/pages/MyStudentCircleView.tsx, /src/pages/Dashboard.tsx, /src/pages/CounselorDashboard.tsx, /src/pages/GroupSessionView.tsx, /src/pages/SignUp.tsx, /src/pages/Reports.tsx, /src/pages/ReferralView.tsx, /src/pages/MyReferrals.tsx, /src/pages/GroupSessions.tsx, /src/pages/Referrals.tsx, /src/pages/Counseling.tsx, /src/pages/StudentDashboard.tsx, /src/pages/MyCounselingView.tsx, /src/pages/MyReferralView.tsx, /src/pages/MyCounseling.tsx[22m
+[2m9:32:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:32:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:32:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:46 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:33:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyCounseling.tsx[22m
+[2m9:33:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:34:59 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:35:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:35:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:35:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:35:31 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m9:42:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:17:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:17:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:18:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:18:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:25:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:25:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:25:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:37:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m10:37:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m10:37:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m10:37:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m10:38:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/CounselingView.tsx[22m
+[2m10:42:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:42:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:42:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:42:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:43:10 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:43:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:43:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:44:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:44:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:44:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:47:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:47:37 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:49:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Counseling.tsx[22m
+[2m10:49:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/GroupSessions.tsx[22m
+[2m10:49:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/Referrals.tsx[22m
+[2m10:52:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m10:52:55 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m10:53:03 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m10:53:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m10:53:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m
+[2m10:53:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/MyStudentCircleView.tsx[22m

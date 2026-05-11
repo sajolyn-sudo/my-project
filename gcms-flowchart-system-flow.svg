@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1203" height="635" viewBox="0 0 1203 635">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#111111"/>
+    </marker>
+    <style>
+      .page-title { font: 700 36px Arial, Helvetica, sans-serif; fill: #000000; }
+      .top-title { font: 700 29px Arial, Helvetica, sans-serif; fill: #ff0000; }
+      .label { font: 700 24px Arial, Helvetica, sans-serif; fill: #000000; }
+      .body { font: 400 24px Arial, Helvetica, sans-serif; fill: #000000; }
+      .flow-text { font: 700 13px Arial, Helvetica, sans-serif; fill: #111111; }
+      .flow-small { font: 400 12px Arial, Helvetica, sans-serif; fill: #111111; }
+      .box { fill: #ffffff; stroke: #111111; stroke-width: 2; }
+      .soft { fill: #f7f9fc; }
+      .role-admin { fill: #fff5d6; }
+      .role-staff { fill: #e8f3ff; }
+      .role-teacher { fill: #eaf8ef; }
+      .role-student { fill: #f4ecff; }
+      .api { fill: #f0f4f8; }
+      .arrow { fill: none; stroke: #111111; stroke-width: 2; marker-end: url(#arrow); }
+      .branch { fill: none; stroke: #111111; stroke-width: 2; }
+      .yes { font: 700 12px Arial, Helvetica, sans-serif; fill: #177a36; }
+      .no { font: 700 12px Arial, Helvetica, sans-serif; fill: #c62828; }
+    </style>
+  </defs>
+
+  <rect width="1203" height="635" fill="#ffffff"/>
+
+  <text x="1187" y="69" text-anchor="end" class="top-title">FLOWCHART / SYSTEM FLOW</text>
+  <text x="59" y="197" class="page-title">FLOWCHART / SYSTEM FLOW</text>
+
+  <g id="flowchart">
+    <rect x="62" y="255" width="76" height="36" rx="18" class="box soft"/>
+    <text x="100" y="278" text-anchor="middle" class="flow-text">START</text>
+
+    <rect x="166" y="248" width="124" height="50" rx="6" class="box soft"/>
+    <text x="228" y="268" text-anchor="middle" class="flow-text">Open GCMS</text>
+    <text x="228" y="285" text-anchor="middle" class="flow-small">landing page</text>
+
+    <rect x="318" y="248" width="126" height="50" rx="6" class="box soft"/>
+    <text x="381" y="268" text-anchor="middle" class="flow-text">Login / Sign Up</text>
+    <text x="381" y="285" text-anchor="middle" class="flow-small">enter account</text>
+
+    <polygon points="538,244 612,273 538,302 464,273" class="box" fill="#fffdf7"/>
+    <text x="538" y="270" text-anchor="middle" class="flow-text">Valid</text>
+    <text x="538" y="287" text-anchor="middle" class="flow-small">account?</text>
+
+    <rect x="474" y="309" width="128" height="34" rx="6" class="box" fill="#fff2f2"/>
+    <text x="538" y="330" text-anchor="middle" class="flow-small">Show error / retry</text>
+
+    <rect x="646" y="248" width="156" height="50" rx="6" class="box soft"/>
+    <text x="724" y="268" text-anchor="middle" class="flow-text">Role-Based</text>
+    <text x="724" y="285" text-anchor="middle" class="flow-small">dashboard access</text>
+
+    <rect x="262" y="355" width="137" height="58" rx="6" class="box role-admin"/>
+    <text x="331" y="376" text-anchor="middle" class="flow-text">ADMIN</text>
+    <text x="331" y="394" text-anchor="middle" class="flow-small">users, colleges,</text>
+    <text x="331" y="409" text-anchor="middle" class="flow-small">academic setup</text>
+
+    <rect x="424" y="355" width="154" height="58" rx="6" class="box role-staff"/>
+    <text x="501" y="376" text-anchor="middle" class="flow-text">STAFF</text>
+    <text x="501" y="394" text-anchor="middle" class="flow-small">counseling, referrals,</text>
+    <text x="501" y="409" text-anchor="middle" class="flow-small">group sessions</text>
+
+    <rect x="603" y="355" width="154" height="58" rx="6" class="box role-teacher"/>
+    <text x="680" y="376" text-anchor="middle" class="flow-text">TEACHER / NTP</text>
+    <text x="680" y="394" text-anchor="middle" class="flow-small">create and monitor</text>
+    <text x="680" y="409" text-anchor="middle" class="flow-small">student referrals</text>
+
+    <rect x="782" y="355" width="154" height="58" rx="6" class="box role-student"/>
+    <text x="859" y="376" text-anchor="middle" class="flow-text">STUDENT</text>
+    <text x="859" y="394" text-anchor="middle" class="flow-small">support, survey,</text>
+    <text x="859" y="409" text-anchor="middle" class="flow-small">own records</text>
+
+    <rect x="315" y="430" width="190" height="44" rx="6" class="box api"/>
+    <text x="410" y="448" text-anchor="middle" class="flow-text">Create / View / Update</text>
+    <text x="410" y="465" text-anchor="middle" class="flow-small">records and requests</text>
+
+    <rect x="545" y="430" width="118" height="44" rx="6" class="box api"/>
+    <text x="604" y="448" text-anchor="middle" class="flow-text">GCMS API</text>
+    <text x="604" y="465" text-anchor="middle" class="flow-small">process request</text>
+
+    <rect x="703" y="430" width="118" height="44" rx="6" class="box api"/>
+    <text x="762" y="448" text-anchor="middle" class="flow-text">Database</text>
+    <text x="762" y="465" text-anchor="middle" class="flow-small">save / retrieve</text>
+
+    <rect x="861" y="430" width="174" height="44" rx="6" class="box api"/>
+    <text x="948" y="448" text-anchor="middle" class="flow-text">Reports / Updates</text>
+    <text x="948" y="465" text-anchor="middle" class="flow-small">dashboards and status</text>
+
+    <rect x="1074" y="434" width="75" height="36" rx="18" class="box soft"/>
+    <text x="1112" y="457" text-anchor="middle" class="flow-text">END</text>
+
+    <path d="M138 273 H157" class="arrow"/>
+    <path d="M290 273 H309" class="arrow"/>
+    <path d="M444 273 H455" class="arrow"/>
+    <path d="M612 273 H637" class="arrow"/>
+    <text x="620" y="262" class="yes">YES</text>
+
+    <path d="M538 302 V305" class="arrow"/>
+    <text x="548" y="314" class="no">NO</text>
+    <path d="M474 326 H381 V307" class="branch"/>
+    <path d="M381 307 V301" class="arrow"/>
+
+    <path d="M724 298 V345" class="branch"/>
+    <path d="M331 345 H859" class="branch"/>
+    <path d="M331 345 V346" class="arrow"/>
+    <path d="M501 345 V346" class="arrow"/>
+    <path d="M680 345 V346" class="arrow"/>
+    <path d="M859 345 V346" class="arrow"/>
+
+    <path d="M331 413 V421 H410" class="branch"/>
+    <path d="M501 413 V421 H410" class="branch"/>
+    <path d="M680 413 V421 H410" class="branch"/>
+    <path d="M859 413 V421 H410" class="branch"/>
+    <path d="M410 421 V430" class="arrow"/>
+
+    <path d="M505 452 H536" class="arrow"/>
+    <path d="M663 452 H694" class="arrow"/>
+    <path d="M821 452 H852" class="arrow"/>
+    <path d="M1035 452 H1065" class="arrow"/>
+  </g>
+
+  <text x="59" y="510" class="label">Description:</text>
+  <text x="66" y="541" class="body">
+    <tspan x="66" dy="0">The GCMS begins when a user opens the system and signs in or creates an account.</tspan>
+    <tspan x="66" dy="28">After validation, the system checks the user role and redirects them to the proper</tspan>
+    <tspan x="66" dy="28">dashboard where records, referrals, counseling cases, group sessions, and reports</tspan>
+    <tspan x="66" dy="28">are processed through the GCMS API and database.</tspan>
+  </text>
+</svg>

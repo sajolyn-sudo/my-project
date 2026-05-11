@@ -30,3 +30,11 @@ export function canApproveSystemReferrals(
   if (user.role === "ADMIN") return true;
   return isCarissaReferralApprover(user);
 }
+
+export function canViewEverySystemReferral(
+  user?: Pick<AuthUser, "id" | "email" | "fname" | "lname" | "role"> | null,
+): boolean {
+  if (!user) return false;
+  if (user.role === "ADMIN") return true;
+  return isCarissaReferralApprover(user);
+}

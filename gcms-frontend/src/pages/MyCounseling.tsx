@@ -1,8 +1,18 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CirclePlus, FileText, Users } from "lucide-react";
+import {
+  CirclePlus,
+  ClipboardList,
+  Eye,
+  FileText,
+  History,
+  Users,
+} from "lucide-react";
 import Modal from "../components/Modal";
-import FormattedDateInput from "../components/FormattedDateInput";
+import {
+  createCounselingCase,
+  type CounselingCase as SessionCounselingCase,
+} from "../lib/entitiesApi";
 import { fullName, useGCMS } from "../store/gcmsStore";
 import useStudentPortalSync from "../hooks/useStudentPortalSync";
 import "./MyCounseling.css";
@@ -35,6 +45,64 @@ const REASONS = [
   "Time Management",
 ];
 
+const SESSION_CASES_KEY = "gcms_mock_counseling_cases_v2";
+const MOCK_USERS_KEY = "gcms_mock_users_v1";
+const YEARS_KEY = "gcms_mock_academic_years_v1";
+
+type CachedStudentProfile = {
+  id?: number;
+  users_id?: number;
+  collegeId?: number | null;
+  college_id?: number | null;
+  yearLevelId?: number | null;
+  year_level_id?: number | null;
+};
+
+type AcademicYearRecord = {
+  id: number;
+  name: string;
+  isActive?: boolean;
+};
+
+function loadLocal<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveLocal<T>(key: string, value: T) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function toPositiveNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function todayDateKey() {
+  return toDateKey(new Date());
+}
+
+function getActiveAcademicYearId() {
+  const years = loadLocal<AcademicYearRecord[]>(YEARS_KEY, []);
+  return (
+    years.find((year) => year.isActive)?.id ??
+    years[0]?.id ??
+    2
+  );
+}
+
+function upsertSessionCase(
+  cases: SessionCounselingCase[],
+  item: SessionCounselingCase,
+) {
+  const withoutCurrent = cases.filter((entry) => entry.id !== item.id);
+  return [item, ...withoutCurrent];
+}
+
 function formatDate(value?: string) {
   const dt = value ? new Date(value) : null;
   if (!dt || Number.isNaN(dt.getTime())) return "-";
@@ -45,12 +113,27 @@ function formatDate(value?: string) {
   });
 }
 
+function toDateKey(value?: string | Date) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return value.slice(0, 10);
+  }
+
+  const dt =
+    value instanceof Date ? value : value ? new Date(value) : new Date();
+  if (Number.isNaN(dt.getTime())) return "";
+  const year = dt.getFullYear();
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function formatSessionTime(value?: string) {
   if (!value) return "-";
   const [hourPart, minutePart] = String(value).split(":");
   const hours = Number(hourPart);
   const minutes = Number(minutePart);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes))
+    return String(value);
   const normalized = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
   if (normalized === "09:00") return "9 AM - 11 AM";
   if (normalized === "13:00") return "1 PM - 3 PM";
@@ -108,6 +191,51 @@ const iconLauncher: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   cursor: "pointer",
+  flexShrink: 0,
+};
+
+const iconButtonGroup: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  flexShrink: 0,
+};
+
+const tableWrap: React.CSSProperties = {
+  border: "1px solid rgba(15,23,42,0.08)",
+  borderRadius: 14,
+  background: "rgba(248,250,252,0.8)",
+  overflowX: "auto",
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "12px 16px",
+  color: "#475569",
+  fontSize: 12,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "14px 16px",
+  color: "#334155",
+  fontSize: 13,
+  fontWeight: 700,
+  verticalAlign: "top",
+};
+
+const modalIconLink: React.CSSProperties = {
+  width: 38,
+  height: 38,
+  borderRadius: 10,
+  border: "1px solid rgba(15,23,42,0.12)",
+  background: "white",
+  color: "#0f172a",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  textDecoration: "none",
 };
 
 export default function MyCounseling() {
@@ -148,15 +276,38 @@ export default function MyCounseling() {
       );
   }, [group_session_members, group_sessions, myUserId]);
 
+  const todayKey = useMemo(() => toDateKey(), []);
+  const upcomingStudentCircles = useMemo(() => {
+    return [...mySessions]
+      .filter((item) => toDateKey(item.session_date) >= todayKey)
+      .sort((a, b) =>
+        `${toDateKey(a.session_date)} ${a.session_time || ""}`.localeCompare(
+          `${toDateKey(b.session_date)} ${b.session_time || ""}`,
+        ),
+      );
+  }, [mySessions, todayKey]);
+  const studentCircleHistory = useMemo(() => {
+    return [...mySessions]
+      .filter((item) => toDateKey(item.session_date) < todayKey)
+      .sort((a, b) =>
+        `${toDateKey(b.session_date)} ${b.session_time || ""}`.localeCompare(
+          `${toDateKey(a.session_date)} ${a.session_time || ""}`,
+        ),
+      );
+  }, [mySessions, todayKey]);
   const currentCase = myCases[0] ?? null;
 
   const [openRequest, setOpenRequest] = useState(false);
   const [openCurrentCase, setOpenCurrentCase] = useState(false);
+  const [openAllCases, setOpenAllCases] = useState(false);
   const [openStudentCircles, setOpenStudentCircles] = useState(false);
+  const [studentCircleMode, setStudentCircleMode] = useState<
+    "all" | "upcoming" | "history"
+  >("all");
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
   const [details, setDetails] = useState("");
-  const [preferredDate, setPreferredDate] = useState("");
-  const [preferredTime, setPreferredTime] = useState("");
+  const [requestSaving, setRequestSaving] = useState(false);
+  const [requestError, setRequestError] = useState("");
 
   const toggleReason = (reason: string) => {
     setSelectedReasons((prev) =>
@@ -166,46 +317,150 @@ export default function MyCounseling() {
     );
   };
 
-  const canSubmit =
-    selectedReasons.length > 0 &&
-    preferredDate.trim().length > 0 &&
-    preferredTime.trim().length > 0 &&
-    myUserId > 0;
+  const canSubmit = selectedReasons.length > 0 && myUserId > 0 && !requestSaving;
 
-  const submitRequest = () => {
+  const resolveRequestProfile = () => {
+    const legacyUser = users.find((item) => item.users_id === myUserId);
+    const mockUser = loadLocal<CachedStudentProfile[]>(MOCK_USERS_KEY, []).find(
+      (item) => toPositiveNumber(item.id ?? item.users_id) === myUserId,
+    );
+
+    return {
+      academicYearId: getActiveAcademicYearId(),
+      collegeId: toPositiveNumber(
+        currentUser?.collegeId ??
+          legacyUser?.collegeId ??
+          mockUser?.collegeId ??
+          mockUser?.college_id,
+      ),
+      yearLevelId: toPositiveNumber(
+        currentUser?.yearLevelId ??
+          legacyUser?.yearLevelId ??
+          mockUser?.yearLevelId ??
+          mockUser?.year_level_id,
+      ),
+    };
+  };
+
+  const submitRequest = async () => {
     if (!canSubmit) return;
 
-    setCounseling((prev) => {
-      const nextId =
-        prev.reduce((max, item) => Math.max(max, item.counseling_id), 0) + 1;
+    const profile = resolveRequestProfile();
+    const reason = selectedReasons.join(", ");
+    const cleanNotes = details.trim() || undefined;
+    const requestDate = todayDateKey();
+    const cachedCases = loadLocal<SessionCounselingCase[]>(
+      SESSION_CASES_KEY,
+      [],
+    );
+    const fallbackId =
+      cachedCases.reduce((max, item) => Math.max(max, item.id), 0) + 1;
+    let createdCase: SessionCounselingCase = {
+      id: fallbackId,
+      studentId: myUserId,
+      academicYearId: profile.academicYearId,
+      collegeId: profile.collegeId,
+      yearLevelId: profile.yearLevelId,
+      date: requestDate,
+      status: "Pending",
+      reason,
+      notes: cleanNotes,
+      studentRequest: true,
+      createdByUserId: myUserId,
+      createdByRole: "STUDENT",
+      createdAt: new Date().toISOString(),
+    };
 
-      return [
-        {
-          counseling_id: nextId,
-          student_user_id: myUserId,
-          counselor_user_id: 0,
-          counseling_date: preferredDate,
-          status: "pending",
-          reason: selectedReasons.join(", "),
-          notes: [`Preferred time: ${preferredTime}`, details.trim()]
-            .filter(Boolean)
-            .join("\n"),
-        },
-        ...prev,
-      ];
-    });
+    setRequestSaving(true);
+    setRequestError("");
+
+    try {
+      const res = await createCounselingCase({
+        studentId: myUserId,
+        academicYearId: profile.academicYearId,
+        collegeId: profile.collegeId,
+        yearLevelId: profile.yearLevelId,
+        date: requestDate,
+        status: "Pending",
+        studentRequest: true,
+        reason,
+        notes: cleanNotes,
+      });
+
+      const createdId =
+        typeof res.id === "number" && Number.isFinite(res.id)
+          ? res.id
+          : fallbackId;
+      createdCase = {
+        ...createdCase,
+        id: createdId,
+      };
+      const apiCases =
+        res.cases && res.cases.length > 0
+          ? res.cases
+          : upsertSessionCase(cachedCases, createdCase);
+      saveLocal(SESSION_CASES_KEY, upsertSessionCase(apiCases, createdCase));
+    } catch {
+      saveLocal(SESSION_CASES_KEY, upsertSessionCase(cachedCases, createdCase));
+      setRequestError(
+        "Saved locally. The request will still appear in Sessions when this browser syncs state.",
+      );
+    }
+
+    setCounseling((prev) => [
+      {
+        counseling_id: createdCase.id,
+        student_user_id: myUserId,
+        counselor_user_id:
+          createdCase.STAFFUserId ?? createdCase.counselorUserId ?? null,
+        counseling_date: createdCase.date,
+        counseling_time: createdCase.time ?? undefined,
+        status: "pending",
+        reason: createdCase.reason,
+        notes: createdCase.notes,
+      },
+      ...prev.filter((item) => item.counseling_id !== createdCase.id),
+    ]);
 
     setSelectedReasons([]);
     setDetails("");
-    setPreferredDate("");
-    setPreferredTime("");
     setOpenRequest(false);
+    setRequestSaving(false);
   };
 
-  const getStaffName = (staffUserId?: number) => {
+  const getStaffName = (staffUserId?: number | null) => {
     if (!staffUserId) return "To be assigned";
     const staffUser = users.find((item) => item.users_id === staffUserId);
     return staffUser ? fullName(staffUser) : "To be assigned";
+  };
+
+  const openStudentCircleList = (
+    mode: "all" | "upcoming" | "history" = "all",
+  ) => {
+    setStudentCircleMode(mode);
+    setOpenStudentCircles(true);
+  };
+
+  const visibleStudentCircles =
+    studentCircleMode === "history"
+      ? studentCircleHistory
+      : studentCircleMode === "upcoming"
+        ? upcomingStudentCircles
+        : mySessions;
+  const studentCircleModalTitle =
+    studentCircleMode === "history"
+      ? "Group Counselling History"
+      : studentCircleMode === "upcoming"
+        ? "Upcoming Group Counselling"
+        : "All Group Counselling";
+  const openCardWithKeyboard = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+    action: () => void,
+  ) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      action();
+    }
   };
 
   return (
@@ -223,12 +478,15 @@ export default function MyCounseling() {
         <div>
           <h1 style={{ margin: 0, fontSize: 30 }}>My Counseling</h1>
           <p style={{ margin: "6px 0 0", color: "#64748b", fontWeight: 600 }}>
-            View your counseling cases and Student Circles in one place.
+            View your counseling cases and Group Counselling sessions in one place.
           </p>
         </div>
 
         <button
-          onClick={() => setOpenRequest(true)}
+          onClick={() => {
+            setRequestError("");
+            setOpenRequest(true);
+          }}
           title="Request Counseling"
           aria-label="Request Counseling"
           style={{
@@ -251,144 +509,205 @@ export default function MyCounseling() {
         </button>
       </div>
 
-      <div style={{ display: "grid", gap: 14 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: 14,
+        }}
+      >
         <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 14,
-          }}
+          className="clickableSummaryCard"
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpenCurrentCase(true)}
+          onKeyDown={(event) =>
+            openCardWithKeyboard(event, () => setOpenCurrentCase(true))
+          }
+          aria-label="Show current case table"
+          style={sectionCard}
         >
-          <div style={sectionCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div style={{ fontWeight: 900, letterSpacing: 0.4, color: "#0f172a", fontSize: 12 }}>
-                CURRENT CASE
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpenCurrentCase(true)}
-                title="Show current case"
-                aria-label="Show current case"
-                style={iconLauncher}
-              >
-                <FileText size={18} />
-              </button>
-            </div>
-            <div style={{ marginTop: 12, color: "#64748b", fontWeight: 700, fontSize: 13 }}>
-              Tap the icon to open your current counseling case.
-            </div>
-          </div>
-
-          <div style={sectionCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-              <div style={{ fontWeight: 900, letterSpacing: 0.4, color: "#0f172a", fontSize: 12 }}>
-                MY STUDENT CIRCLES
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpenStudentCircles(true)}
-                title="Show My Student Circles"
-                aria-label="Show My Student Circles"
-                style={iconLauncher}
-              >
-                <Users size={18} />
-              </button>
-            </div>
-            <div style={{ marginTop: 12, color: "#64748b", fontWeight: 700, fontSize: 13 }}>
-              Tap the icon to open your Student Circle schedule.
-            </div>
-          </div>
-        </div>
-        <div style={sectionCard}>
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               gap: 12,
+              alignItems: "center",
               flexWrap: "wrap",
             }}
           >
-            <div style={{ fontWeight: 900, letterSpacing: 0.4, color: "#0f172a", fontSize: 12 }}>
-              ALL MY CASES
-            </div>
             <div
               style={{
-                fontSize: 12,
                 fontWeight: 900,
-                border: "1px solid rgba(15,23,42,0.10)",
-                padding: "4px 10px",
-                borderRadius: 999,
-                background: "rgba(255,255,255,0.85)",
+                letterSpacing: 0.4,
+                color: "#0f172a",
+                fontSize: 12,
               }}
             >
-              Total: {myCases.length}
+              CURRENT CASE
+            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenCurrentCase(true);
+              }}
+              title="Show current case"
+              aria-label="Show current case"
+              style={iconLauncher}
+            >
+              <FileText size={18} />
+            </button>
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              color: "#64748b",
+              fontWeight: 700,
+              fontSize: 13,
+            }}
+          >
+            {loading && !currentCase
+              ? "Loading latest case..."
+              : currentCase
+                ? `Latest: ${formatDate(currentCase.counseling_date)}`
+                : "No current case yet."}
+          </div>
+        </div>
+
+        <div
+          className="clickableSummaryCard"
+          role="button"
+          tabIndex={0}
+          onClick={() => openStudentCircleList("all")}
+          onKeyDown={(event) =>
+            openCardWithKeyboard(event, () => openStudentCircleList("all"))
+          }
+          aria-label="Show all Group Counselling sessions table"
+          style={sectionCard}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 900,
+                letterSpacing: 0.4,
+                color: "#0f172a",
+                fontSize: 12,
+              }}
+            >
+              MY STUDENT CIRCLES
+            </div>
+            <div style={iconButtonGroup}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openStudentCircleList("upcoming");
+                }}
+                title="Show upcoming Group Counselling sessions"
+                aria-label="Show upcoming Group Counselling sessions"
+                style={iconLauncher}
+              >
+                <Users size={18} />
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openStudentCircleList("history");
+                }}
+                title="Show Group Counselling history"
+                aria-label="Show Group Counselling history"
+                style={iconLauncher}
+              >
+                <History size={18} />
+              </button>
             </div>
           </div>
+          <div
+            style={{
+              marginTop: 12,
+              color: "#64748b",
+              fontWeight: 700,
+              fontSize: 13,
+            }}
+          >
+            Upcoming: {upcomingStudentCircles.length} | History:{" "}
+            {studentCircleHistory.length}
+          </div>
+        </div>
 
-          <div style={{ marginTop: 12 }}>
-            {loading && myCases.length === 0 ? (
-              <div style={{ color: "#64748b", fontWeight: 700 }}>
-                Loading your case list...
-              </div>
-            ) : myCases.length === 0 ? (
-              <div style={{ color: "#64748b", fontWeight: 700 }}>No cases yet.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {myCases.map((item) => (
-                  <Link
-                    key={item.counseling_id}
-                    to={`/app/my-counseling/${item.counseling_id}`}
-                    style={{
-                      border: "1px solid rgba(15,23,42,0.08)",
-                      borderRadius: 14,
-                      padding: 12,
-                      background: "rgba(248,250,252,0.8)",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 12,
-                      alignItems: "flex-start",
-                      textDecoration: "none",
-                      color: "inherit",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 900, color: "#0f172a" }}>
-                        {item.reason || "Counseling Request"}
-                      </div>
-                      <div
-                        style={{
-                          color: "#64748b",
-                          fontWeight: 700,
-                          fontSize: 13,
-                          marginTop: 4,
-                        }}
-                      >
-                        Date: {formatDate(item.counseling_date)}
-                      </div>
-                      {!!item.notes && (
-                        <div
-                          style={{
-                            color: "#475569",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            marginTop: 4,
-                            whiteSpace: "pre-wrap",
-                          }}
-                        >
-                          {item.notes}
-                        </div>
-                      )}
-                    </div>
-                    {statusPill(item.status)}
-                  </Link>
-                ))}
-              </div>
-            )}
+        <div
+          className="clickableSummaryCard"
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpenAllCases(true)}
+          onKeyDown={(event) =>
+            openCardWithKeyboard(event, () => setOpenAllCases(true))
+          }
+          aria-label="Show all my cases table"
+          style={sectionCard}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 900,
+                letterSpacing: 0.4,
+                color: "#0f172a",
+                fontSize: 12,
+              }}
+            >
+              ALL MY CASES
+            </div>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpenAllCases(true);
+              }}
+              title="Show all my cases"
+              aria-label="Show all my cases"
+              style={iconLauncher}
+            >
+              <ClipboardList size={18} />
+            </button>
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              color: "#64748b",
+              fontWeight: 700,
+              fontSize: 13,
+            }}
+          >
+            Total cases: {myCases.length}
           </div>
         </div>
       </div>
 
-      <Modal open={openRequest} title="Request Counseling" onClose={() => setOpenRequest(false)}>
+      <Modal
+        open={openRequest}
+        title="Request Counseling"
+        onClose={() => {
+          if (!requestSaving) setOpenRequest(false);
+        }}
+      >
         <div style={{ display: "grid", gap: 14 }}>
           <div
             style={{
@@ -404,8 +723,31 @@ export default function MyCounseling() {
             Your information will remain confidential.
           </div>
 
+          {requestError ? (
+            <div
+              style={{
+                background: "rgba(251,191,36,0.14)",
+                border: "1px solid rgba(217,119,6,0.24)",
+                padding: 10,
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 800,
+                color: "#92400e",
+              }}
+            >
+              {requestError}
+            </div>
+          ) : null}
+
           <div>
-            <div style={{ fontWeight: 800, color: "#334155", fontSize: 13, marginBottom: 8 }}>
+            <div
+              style={{
+                fontWeight: 800,
+                color: "#334155",
+                fontSize: 13,
+                marginBottom: 8,
+              }}
+            >
               Reason for Counseling * (Select all that apply)
             </div>
 
@@ -417,7 +759,14 @@ export default function MyCounseling() {
                 background: "rgba(255,255,255,0.92)",
               }}
             >
-              <div className="reasonsGrid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div
+                className="reasonsGrid"
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
+                }}
+              >
                 {REASONS.map((reason) => {
                   const checked = selectedReasons.includes(reason);
 
@@ -434,11 +783,17 @@ export default function MyCounseling() {
                         fontSize: 12,
                         fontWeight: 800,
                         color: "#0f172a",
-                        background: checked ? "rgba(15,23,42,0.05)" : "transparent",
+                        background: checked
+                          ? "rgba(15,23,42,0.05)"
+                          : "transparent",
                         userSelect: "none",
                       }}
                     >
-                      <input type="checkbox" checked={checked} onChange={() => toggleReason(reason)} />
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReason(reason)}
+                      />
                       {reason}
                     </label>
                   );
@@ -446,43 +801,27 @@ export default function MyCounseling() {
               </div>
             </div>
 
-            <div style={{ marginTop: 6, fontSize: 11, color: "#64748b", fontWeight: 700 }}>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: "#64748b",
+                fontWeight: 700,
+              }}
+            >
               Selected: {selectedReasons.length}
             </div>
           </div>
 
           <div>
-            <div style={{ fontWeight: 800, color: "#334155", fontSize: 13, marginBottom: 8 }}>
-              Preferred Schedule
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>
-                  Preferred Date
-                </div>
-                <FormattedDateInput
-                  value={preferredDate}
-                  onChange={(e) => setPreferredDate(e.target.value)}
-                  displayStyle={{ height: 36, borderRadius: 8, border: "1px solid rgba(15,23,42,0.15)", padding: "0 34px 0 10px", fontSize: 12, width: "100%" }}
-                />
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>
-                  Preferred Time
-                </div>
-                <input
-                  type="time"
-                  value={preferredTime}
-                  onChange={(e) => setPreferredTime(e.target.value)}
-                  style={{ height: 36, borderRadius: 8, border: "1px solid rgba(15,23,42,0.15)", padding: "0 10px", fontSize: 12, width: "100%" }}
-                />
-              </div>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontWeight: 800, color: "#334155", fontSize: 13, marginBottom: 8 }}>
+            <div
+              style={{
+                fontWeight: 800,
+                color: "#334155",
+                fontSize: 13,
+                marginBottom: 8,
+              }}
+            >
               Notes (optional)
             </div>
 
@@ -504,6 +843,7 @@ export default function MyCounseling() {
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <button
               onClick={() => setOpenRequest(false)}
+              disabled={requestSaving}
               style={{
                 height: 36,
                 padding: "0 14px",
@@ -512,7 +852,8 @@ export default function MyCounseling() {
                 background: "white",
                 fontWeight: 900,
                 fontSize: 12,
-                cursor: "pointer",
+                cursor: requestSaving ? "not-allowed" : "pointer",
+                opacity: requestSaving ? 0.65 : 1,
               }}
             >
               Cancel
@@ -533,101 +874,363 @@ export default function MyCounseling() {
                 cursor: canSubmit ? "pointer" : "not-allowed",
               }}
             >
-              Create
+              {requestSaving ? "Creating..." : "Create"}
             </button>
           </div>
 
-          {!canSubmit && (
+          {!canSubmit && !requestSaving && (
             <div style={{ fontSize: 11, color: "#ef4444", fontWeight: 700 }}>
-              Please select at least one reason and choose your preferred date and time.
+              Please select at least one reason.
             </div>
           )}
         </div>
       </Modal>
 
-      <Modal open={openCurrentCase} title="Current Case" onClose={() => setOpenCurrentCase(false)}>
+      <Modal
+        open={openCurrentCase}
+        title="Current Case"
+        onClose={() => setOpenCurrentCase(false)}
+        contentStyle={{ width: "min(920px, 100%)" }}
+      >
         {loading && myCases.length === 0 ? (
-          <div style={{ color: "#64748b", fontWeight: 700 }}>Loading your counseling records...</div>
+          <div style={{ color: "#64748b", fontWeight: 700 }}>
+            Loading your counseling records...
+          </div>
         ) : !currentCase ? (
           <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ fontWeight: 900, color: "#0f172a" }}>No counseling cases yet</div>
+            <div style={{ fontWeight: 900, color: "#0f172a" }}>
+              No counseling cases yet
+            </div>
             <div style={{ color: "#64748b", fontWeight: 600, fontSize: 13 }}>
-              When admin or STAFFs create a case for you, it will show here automatically.
+              When admin or STAFFs create a case for you, it will show here
+              automatically.
             </div>
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 900, color: "#0f172a" }}>{currentCase.reason || "Counseling Request"}</div>
-              {statusPill(currentCase.status)}
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                justifySelf: "end",
+                fontSize: 12,
+                fontWeight: 900,
+                border: "1px solid rgba(15,23,42,0.10)",
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.85)",
+              }}
+            >
+              Latest case
             </div>
-            <div style={{ color: "#64748b", fontWeight: 700, fontSize: 13 }}>
-              Date: {formatDate(currentCase.counseling_date)}
-            </div>
-            <div style={{ color: "#64748b", fontWeight: 700, fontSize: 13 }}>
-              Staff: {getStaffName(currentCase.counselor_user_id)}
-            </div>
-            {!!currentCase.notes && (
-              <div style={{ color: "#0f172a", fontWeight: 650, whiteSpace: "pre-wrap" }}>{currentCase.notes}</div>
-            )}
-            <div>
-              <Link
-                to={`/app/my-counseling/${currentCase.counseling_id}`}
+            <div style={tableWrap}>
+              <table
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  textDecoration: "none",
-                  border: "1px solid rgba(15,23,42,0.10)",
-                  background: "white",
-                  color: "#0f172a",
-                  fontWeight: 900,
+                  width: "100%",
+                  minWidth: 760,
+                  borderCollapse: "collapse",
                 }}
               >
-                View details
-              </Link>
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.72)" }}>
+                    <th style={thStyle}>Case</th>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Time</th>
+                    <th style={thStyle}>Staff</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={thStyle}>Notes</th>
+                    <th style={{ ...thStyle, width: 58 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style={tdStyle}>
+                      <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                        {currentCase.reason || "Counseling Request"}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        color: "#475569",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatDate(currentCase.counseling_date)}
+                    </td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        color: "#475569",
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {formatSessionTime(currentCase.counseling_time)}
+                    </td>
+                    <td style={tdStyle}>
+                      {getStaffName(currentCase.counselor_user_id)}
+                    </td>
+                    <td style={tdStyle}>{statusPill(currentCase.status)}</td>
+                    <td
+                      style={{
+                        ...tdStyle,
+                        maxWidth: 260,
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {currentCase.notes || "-"}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      <Link
+                        to={`/app/my-counseling/${currentCase.counseling_id}`}
+                        title="View case"
+                        aria-label="View case"
+                        style={modalIconLink}
+                      >
+                        <Eye size={16} />
+                      </Link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         )}
       </Modal>
 
-      <Modal open={openStudentCircles} title="My Student Circles" onClose={() => setOpenStudentCircles(false)}>
-        {loading && mySessions.length === 0 ? (
-          <div style={{ color: "#64748b", fontWeight: 700 }}>Loading your Student Circles...</div>
-        ) : mySessions.length === 0 ? (
-          <div style={{ color: "#64748b", fontWeight: 700 }}>No Student Circles assigned yet.</div>
+      <Modal
+        open={openAllCases}
+        title="All My Cases"
+        onClose={() => setOpenAllCases(false)}
+        contentStyle={{ width: "min(920px, 100%)" }}
+      >
+        {loading && myCases.length === 0 ? (
+          <div style={{ color: "#64748b", fontWeight: 700 }}>
+            Loading your case list...
+          </div>
+        ) : myCases.length === 0 ? (
+          <div style={{ color: "#64748b", fontWeight: 700 }}>No cases yet.</div>
         ) : (
-          <div style={{ border: "1px solid rgba(15,23,42,0.08)", borderRadius: 14, background: "rgba(248,250,252,0.8)", overflow: "hidden" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "rgba(255,255,255,0.72)" }}>
-                  <th style={{ textAlign: "left", padding: "12px 16px", color: "#475569", fontSize: 12, fontWeight: 900 }}>Facilitator</th>
-                  <th style={{ textAlign: "left", padding: "12px 16px", color: "#475569", fontSize: 12, fontWeight: 900 }}>Location</th>
-                  <th style={{ textAlign: "left", padding: "12px 16px", color: "#475569", fontSize: 12, fontWeight: 900 }}>Date</th>
-                  <th style={{ textAlign: "left", padding: "12px 16px", color: "#475569", fontSize: 12, fontWeight: 900 }}>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mySessions.map((session, index) => (
-                  <tr key={session.group_session_id} style={{ borderTop: index === 0 ? "none" : "1px solid rgba(15,23,42,0.08)" }}>
-                    <td style={{ padding: "14px 16px", color: "#334155", fontSize: 13, fontWeight: 700, verticalAlign: "top" }}>
-                      {session.facilitator || "To be announced"}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#334155", fontSize: 13, fontWeight: 700, verticalAlign: "top" }}>
-                      {session.location || "TBA"}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#475569", fontSize: 13, fontWeight: 800, verticalAlign: "top", whiteSpace: "nowrap" }}>
-                      {formatDate(session.session_date)}
-                    </td>
-                    <td style={{ padding: "14px 16px", color: "#475569", fontSize: 13, fontWeight: 800, verticalAlign: "top", whiteSpace: "nowrap" }}>
-                      {formatSessionTime(session.session_time)}
-                    </td>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                justifySelf: "end",
+                fontSize: 12,
+                fontWeight: 900,
+                border: "1px solid rgba(15,23,42,0.10)",
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.85)",
+              }}
+            >
+              Total: {myCases.length}
+            </div>
+            <div style={tableWrap}>
+              <table
+                style={{
+                  width: "100%",
+                  minWidth: 700,
+                  borderCollapse: "collapse",
+                }}
+              >
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.72)" }}>
+                    <th style={thStyle}>Case</th>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Time</th>
+                    <th style={thStyle}>Staff</th>
+                    <th style={thStyle}>Status</th>
+                    <th style={{ ...thStyle, width: 58 }}></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {myCases.map((item, index) => (
+                    <tr
+                      key={item.counseling_id}
+                      style={{
+                        borderTop:
+                          index === 0
+                            ? "none"
+                            : "1px solid rgba(15,23,42,0.08)",
+                      }}
+                    >
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                          {item.reason || "Counseling Request"}
+                        </div>
+                        {!!item.notes && (
+                          <div
+                            style={{
+                              color: "#64748b",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              marginTop: 4,
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {item.notes}
+                          </div>
+                        )}
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          color: "#475569",
+                          fontWeight: 800,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatDate(item.counseling_date)}
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          color: "#475569",
+                          fontWeight: 800,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatSessionTime(item.counseling_time)}
+                      </td>
+                      <td style={tdStyle}>
+                        {getStaffName(item.counselor_user_id)}
+                      </td>
+                      <td style={tdStyle}>{statusPill(item.status)}</td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>
+                        <Link
+                          to={`/app/my-counseling/${item.counseling_id}`}
+                          title="View case"
+                          aria-label="View case"
+                          style={modalIconLink}
+                        >
+                          <Eye size={16} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={openStudentCircles}
+        title={studentCircleModalTitle}
+        onClose={() => setOpenStudentCircles(false)}
+        contentStyle={{ width: "min(920px, 100%)" }}
+      >
+        {loading && mySessions.length === 0 ? (
+          <div style={{ color: "#64748b", fontWeight: 700 }}>
+            Loading your Group Counselling sessions...
+          </div>
+        ) : visibleStudentCircles.length === 0 ? (
+          <div style={{ color: "#64748b", fontWeight: 700 }}>
+            {studentCircleMode === "history"
+              ? "No Group Counselling history yet."
+              : studentCircleMode === "upcoming"
+                ? "No upcoming Group Counselling sessions assigned yet."
+                : "No Group Counselling sessions assigned yet."}
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                justifySelf: "end",
+                fontSize: 12,
+                fontWeight: 900,
+                border: "1px solid rgba(15,23,42,0.10)",
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.85)",
+              }}
+            >
+              Total: {visibleStudentCircles.length}
+            </div>
+            <div style={tableWrap}>
+              <table
+                style={{
+                  width: "100%",
+                  minWidth: 760,
+                  borderCollapse: "collapse",
+                }}
+              >
+                <thead>
+                  <tr style={{ background: "rgba(255,255,255,0.72)" }}>
+                    <th style={thStyle}>Topic</th>
+                    <th style={thStyle}>Facilitator</th>
+                    <th style={thStyle}>Location</th>
+                    <th style={thStyle}>Date</th>
+                    <th style={thStyle}>Time</th>
+                    <th style={thStyle}>Type</th>
+                    <th style={{ ...thStyle, width: 58 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleStudentCircles.map((session, index) => (
+                    <tr
+                      key={session.group_session_id}
+                      style={{
+                        borderTop:
+                          index === 0
+                            ? "none"
+                            : "1px solid rgba(15,23,42,0.08)",
+                      }}
+                    >
+                      <td
+                        style={{
+                          ...tdStyle,
+                          fontWeight: 900,
+                          color: "#0f172a",
+                        }}
+                      >
+                        {session.topic || session.notes || "Group Counselling"}
+                      </td>
+                      <td style={tdStyle}>
+                        {session.facilitator || "To be announced"}
+                      </td>
+                      <td style={tdStyle}>{session.location || "TBA"}</td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          color: "#475569",
+                          fontWeight: 800,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatDate(session.session_date)}
+                      </td>
+                      <td
+                        style={{
+                          ...tdStyle,
+                          color: "#475569",
+                          fontWeight: 800,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {formatSessionTime(session.session_time)}
+                      </td>
+                      <td style={tdStyle}>
+                        {toDateKey(session.session_date) >= todayKey
+                          ? "Upcoming"
+                          : "History"}
+                      </td>
+                      <td style={{ ...tdStyle, textAlign: "right" }}>
+                        <Link
+                          to={`/app/my-counseling/student-circles/${session.group_session_id}`}
+                          title="View Group Counselling"
+                          aria-label="View Group Counselling"
+                          style={modalIconLink}
+                        >
+                          <Eye size={16} />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </Modal>

@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CalendarDays, Eye, Plus } from "lucide-react";
+import { CalendarDays, Eye, FileDown, Plus } from "lucide-react";
 import {
   type College,
   type Course,
@@ -8,10 +8,6 @@ import {
   fetchEntitiesBootstrap,
   type User as BootstrapUser,
 } from "../lib/entitiesApi";
-import {
-  normalizeSentenceCaseName,
-  toSentenceCaseNameInput,
-} from "../lib/nameCase";
 import DropdownSelect from "../components/DropdownSelect";
 import {
   useGCMS,
@@ -19,6 +15,10 @@ import {
   type ReferralStatus,
 } from "../store/gcmsStore";
 import useStudentPortalSync from "../hooks/useStudentPortalSync";
+import {
+  canPrintReferralCallSlip,
+  openReferralCallSlipPrint,
+} from "../lib/referralCallSlipPrint";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -78,18 +78,6 @@ const btnPrimary: React.CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   gap: 8,
-};
-
-const inputStyle: React.CSSProperties = {
-  height: 38,
-  borderRadius: 12,
-  border: "1px solid rgba(15,23,42,0.12)",
-  padding: "0 12px",
-  outline: "none",
-  width: "100%",
-  background: "white",
-  fontSize: 12,
-  fontWeight: 700,
 };
 
 const textareaStyle: React.CSSProperties = {
@@ -219,7 +207,8 @@ function formatTime(value?: string) {
   const [hourPart, minutePart] = String(value).split(":");
   const hours = Number(hourPart);
   const minutes = Number(minutePart);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes))
+    return String(value);
   const suffix = hours >= 12 ? "PM" : "AM";
   const displayHour = hours % 12 || 12;
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
@@ -250,24 +239,48 @@ function ReferralChip({ status }: { status: ReferralStatus }) {
   const label = status === "pending" ? "Waiting for Approval" : "Approved";
   const color = status === "pending" ? "#b45309" : "#1d4ed8";
 
-  return <span style={{ display: "inline-block", color, fontSize: 13, fontWeight: 950, whiteSpace: "nowrap" }}>{label}</span>;
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        color,
+        fontSize: 13,
+        fontWeight: 950,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
 }
 
 function isStudentReferralApproved(status: ReferralStatus): boolean {
   return status === "approved" || status === "complete";
 }
 
+function hasCompleteStudentReferralSchedule(referral: Referral): boolean {
+  return Boolean(
+    isStudentReferralApproved(referral.status) &&
+      String(referral.referred_date || "").trim() &&
+      String(referral.referred_time || "").trim(),
+  );
+}
+
 function getStudentReferralScheduleDate(referral: Referral): string {
-  return isStudentReferralApproved(referral.status) ? String(referral.referred_date || "") : "";
+  return isStudentReferralApproved(referral.status)
+    ? String(referral.referred_date || "")
+    : "";
 }
 
 function getStudentReferralScheduleTime(referral: Referral): string {
-  return isStudentReferralApproved(referral.status) ? String(referral.referred_time || "") : "";
+  return isStudentReferralApproved(referral.status)
+    ? String(referral.referred_time || "")
+    : "";
 }
 
 function referralSortTimestamp(referral: Referral): number {
-  const scheduledDate = getStudentReferralScheduleDate(referral).trim();
-  const scheduledTime = getStudentReferralScheduleTime(referral).trim() || "00:00";
+  const scheduledDate = String(referral.referred_date || "").trim();
+  const scheduledTime = String(referral.referred_time || "").trim() || "00:00";
   if (scheduledDate) {
     const parsed = new Date(`${scheduledDate}T${scheduledTime}:00`);
     if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
@@ -280,6 +293,39 @@ function referralSortTimestamp(referral: Referral): number {
   }
 
   return 0;
+}
+
+function referralSortBucket(referral: Referral): number {
+  if (hasCompleteStudentReferralSchedule(referral)) return 0;
+  if (isStudentReferralApproved(referral.status)) return 1;
+  return 2;
+}
+
+function compareStudentReferrals(a: Referral, b: Referral): number {
+  const byBucket = referralSortBucket(a) - referralSortBucket(b);
+  if (byBucket !== 0) return byBucket;
+
+  const bySchedule = referralSortTimestamp(b) - referralSortTimestamp(a);
+  if (bySchedule !== 0) return bySchedule;
+
+  return b.referral_id - a.referral_id;
+}
+
+function fullBootstrapName(user: BootstrapUser): string {
+  return [user.fname, user.mname, user.lname].filter(Boolean).join(" ").trim();
+}
+
+function extractReferralNoteLabel(notes: string | undefined, label: string): string {
+  const source = String(notes || "");
+  const rows = source
+    .split(/\r?\n|\|/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const found = rows.find((line) =>
+    line.toLowerCase().startsWith(`${label.toLowerCase()}:`),
+  );
+  if (!found) return "";
+  return found.slice(found.indexOf(":") + 1).trim();
 }
 
 function Modal({
@@ -334,10 +380,19 @@ function Modal({
             flex: "0 0 auto",
           }}
         >
-          <div style={{ fontWeight: 950, fontSize: 14, color: "#0f172a" }}>{title}</div>
+          <div style={{ fontWeight: 950, fontSize: 14, color: "#0f172a" }}>
+            {title}
+          </div>
           <button
             onClick={onClose}
-            style={{ ...btn, height: 34, width: 40, padding: 0, borderRadius: 10, fontSize: 14 }}
+            style={{
+              ...btn,
+              height: 34,
+              width: 40,
+              padding: 0,
+              borderRadius: 10,
+              fontSize: 14,
+            }}
             aria-label="Close"
             title="Close"
           >
@@ -345,7 +400,9 @@ function Modal({
           </button>
         </div>
 
-        <div style={{ padding: 14, overflowY: "auto", flex: "1 1 auto" }}>{children}</div>
+        <div style={{ padding: 14, overflowY: "auto", flex: "1 1 auto" }}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -355,13 +412,17 @@ export default function MyReferrals() {
   useStudentPortalSync();
   const navigate = useNavigate();
   const { currentUser, referrals, setReferrals } = useGCMS();
-  const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "sent">("received");
+  const [directionFilter, setDirectionFilter] = useState<
+    "all" | "received" | "sent"
+  >("received");
   const [filterDate, setFilterDate] = useState("");
   const [showDateCalendar, setShowDateCalendar] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() =>
+    startOfMonth(new Date()),
+  );
   const [open, setOpen] = useState(false);
 
-  const [studentName, setStudentName] = useState("");
+  const [targetStudentId, setTargetStudentId] = useState(0);
   const [collegeId, setCollegeId] = useState(0);
   const [course, setCourse] = useState("");
   const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
@@ -377,19 +438,27 @@ export default function MyReferrals() {
   const myRelatedReferrals = useMemo(() => {
     if (!myUserId) return [];
     return [...referrals]
-      .filter((referral) => referral.student_user_id === myUserId || referral.referred_by_user_id === myUserId)
-      .sort((a, b) => referralSortTimestamp(b) - referralSortTimestamp(a));
+      .filter(
+        (referral) =>
+          referral.student_user_id === myUserId ||
+          referral.referred_by_user_id === myUserId,
+      )
+      .sort(compareStudentReferrals);
   }, [myUserId, referrals]);
 
   const directionReferrals = useMemo(() => {
     if (!myUserId) return [];
     if (directionFilter === "received") {
       return myRelatedReferrals.filter(
-        (referral) => referral.student_user_id === myUserId && referral.referred_by_user_id !== myUserId,
+        (referral) =>
+          referral.student_user_id === myUserId &&
+          referral.referred_by_user_id !== myUserId,
       );
     }
     if (directionFilter === "sent") {
-      return myRelatedReferrals.filter((referral) => referral.referred_by_user_id === myUserId);
+      return myRelatedReferrals.filter(
+        (referral) => referral.referred_by_user_id === myUserId,
+      );
     }
     return myRelatedReferrals;
   }, [directionFilter, myRelatedReferrals, myUserId]);
@@ -407,13 +476,18 @@ export default function MyReferrals() {
   const receivedCount = useMemo(
     () =>
       myRelatedReferrals.filter(
-        (referral) => referral.student_user_id === myUserId && referral.referred_by_user_id !== myUserId,
+        (referral) =>
+          referral.student_user_id === myUserId &&
+          referral.referred_by_user_id !== myUserId,
       ).length,
     [myRelatedReferrals, myUserId],
   );
 
   const sentCount = useMemo(
-    () => myRelatedReferrals.filter((referral) => referral.referred_by_user_id === myUserId).length,
+    () =>
+      myRelatedReferrals.filter(
+        (referral) => referral.referred_by_user_id === myUserId,
+      ).length,
     [myRelatedReferrals, myUserId],
   );
   const showScheduleColumns = directionFilter !== "sent";
@@ -428,7 +502,9 @@ export default function MyReferrals() {
         setColleges(payload.colleges ?? []);
         setCourses(payload.courses ?? []);
         setActiveAcademicYearId(
-          payload.academicYears?.find((item) => item.isActive)?.id ?? payload.academicYears?.[0]?.id ?? 0,
+          payload.academicYears?.find((item) => item.isActive)?.id ??
+            payload.academicYears?.[0]?.id ??
+            0,
         );
       })
       .catch(() => {
@@ -445,15 +521,93 @@ export default function MyReferrals() {
     [bootstrapUsers, myUserId],
   );
 
+  const canDownloadStudentCallSlip = (referral: Referral) =>
+    Boolean(
+      myUserId &&
+        referral.student_user_id === myUserId &&
+        canPrintReferralCallSlip({
+          status: referral.status,
+          referredDate: referral.referred_date,
+          referredTime: referral.referred_time,
+        }),
+    );
+
+  const openStudentReferralCallSlip = (referral: Referral) => {
+    if (!canDownloadStudentCallSlip(referral)) return;
+
+    const student =
+      bootstrapUsers.find((item) => item.id === referral.student_user_id) ??
+      currentBootstrapUser;
+    const referredBy = bootstrapUsers.find(
+      (item) => item.id === referral.referred_by_user_id,
+    );
+    const studentName =
+      extractReferralNoteLabel(referral.notes, "Name") ||
+      (student ? fullBootstrapName(student) : "") ||
+      (currentUser ? `${currentUser.fname} ${currentUser.lname}`.trim() : "") ||
+      "Student";
+    const courseYearSection =
+      extractReferralNoteLabel(referral.notes, "Course") ||
+      [
+        student?.courseName,
+        student?.section,
+      ]
+        .filter(Boolean)
+        .join(" / ") ||
+      "-";
+
+    openReferralCallSlipPrint({
+      referralId: referral.referral_id,
+      studentName,
+      studentEmail: student?.email || currentUser?.email,
+      courseYearSection,
+      scheduleDate: String(referral.referred_date || ""),
+      scheduleTime: String(referral.referred_time || ""),
+      reason: referral.reason,
+      referredByName: referredBy ? fullBootstrapName(referredBy) : "Guidance Office",
+      issuedDate: new Date().toISOString().slice(0, 10),
+    });
+  };
+
   const availableCourses = useMemo(() => {
     if (!collegeId) return [];
     return courses.filter((item) => item.collegeId === collegeId);
   }, [collegeId, courses]);
 
+  const selectedCourse = useMemo(
+    () => availableCourses.find((item) => item.name === course) ?? null,
+    [availableCourses, course],
+  );
+
+  const targetStudents = useMemo(() => {
+    const selectedCourseName = course.trim().toLowerCase();
+    const selectedCourseId = Number(selectedCourse?.id ?? 0);
+    if (!collegeId || !selectedCourseName) return [];
+
+    return bootstrapUsers
+      .filter((user) => {
+        if (user.role !== "STUDENT") return false;
+        if (user.id === myUserId) return false;
+        if (Number(user.collegeId ?? 0) !== collegeId) return false;
+
+        const userCourseId = Number(user.courseId ?? 0);
+        const userCourseName = String(user.courseName || "")
+          .trim()
+          .toLowerCase();
+        return selectedCourseId
+          ? userCourseId === selectedCourseId ||
+              userCourseName === selectedCourseName
+          : userCourseName === selectedCourseName;
+      })
+      .sort((a, b) => fullBootstrapName(a).localeCompare(fullBootstrapName(b)));
+  }, [bootstrapUsers, collegeId, course, myUserId, selectedCourse?.id]);
+
   useEffect(() => {
     if (!currentBootstrapUser) return;
     setCollegeId((prev) => prev || Number(currentBootstrapUser.collegeId || 0));
-    setCourse((prev) => prev || String(currentBootstrapUser.courseName || "").trim());
+    setCourse(
+      (prev) => prev || String(currentBootstrapUser.courseName || "").trim(),
+    );
   }, [currentBootstrapUser]);
 
   useEffect(() => {
@@ -462,11 +616,18 @@ export default function MyReferrals() {
     if (!exists) setCourse("");
   }, [availableCourses, course]);
 
+  useEffect(() => {
+    if (targetStudents.some((item) => item.id === targetStudentId)) return;
+    setTargetStudentId(targetStudents[0]?.id ?? 0);
+  }, [targetStudents, targetStudentId]);
+
   const scheduleDateKeys = useMemo(
     () =>
       new Set(
         directionReferrals
-          .map((referral) => toDateKey(getStudentReferralScheduleDate(referral)))
+          .map((referral) =>
+            toDateKey(getStudentReferralScheduleDate(referral)),
+          )
           .filter(Boolean),
       ),
     [directionReferrals],
@@ -510,12 +671,16 @@ export default function MyReferrals() {
 
   const toggleReason = (reason: string) => {
     setSelectedReasons((prev) =>
-      prev.includes(reason) ? prev.filter((item) => item !== reason) : [...prev, reason],
+      prev.includes(reason)
+        ? prev.filter((item) => item !== reason)
+        : [...prev, reason],
     );
   };
 
   const normalizeApiStatus = (status: string): ReferralStatus => {
-    const normalized = String(status || "").trim().toLowerCase();
+    const normalized = String(status || "")
+      .trim()
+      .toLowerCase();
     if (
       normalized === "approved" ||
       normalized === "ongoing" ||
@@ -533,22 +698,55 @@ export default function MyReferrals() {
     }
     return "pending";
   };
-  const addReferral = async () => {
-    if (!myUserId || !currentBootstrapUser) return;
 
-    alert("Students cannot refer themselves. Please ask a teacher, non-teaching personnel, staff, or admin to submit the referral.");
-    return;
+  const canSaveReferral =
+    !saving &&
+    Boolean(activeAcademicYearId) &&
+    Boolean(collegeId) &&
+    course.trim().length > 0 &&
+    Boolean(targetStudentId) &&
+    selectedReasons.length > 0;
+  const saveReferralTitle = !activeAcademicYearId
+    ? "No active academic year found"
+    : !collegeId
+      ? "Select college"
+      : !course.trim()
+        ? "Select course"
+        : !targetStudentId
+          ? "Select student"
+          : selectedReasons.length === 0
+            ? "Select at least one reason"
+            : "Save referral";
+
+  const addReferral = async () => {
+    if (!myUserId) return;
 
     if (selectedReasons.length === 0) {
       alert("Please select at least one reason.");
       return;
     }
-    if (!studentName.trim() || !collegeId || !course.trim()) {
-      alert("Please provide name, college, and course.");
+    if (!collegeId || !course.trim()) {
+      alert("Please select a college and course.");
       return;
     }
-    if (!currentBootstrapUser.collegeId || !currentBootstrapUser.yearLevelId) {
-      alert("Your college or year level is missing. Please contact the admin.");
+    const targetStudent = bootstrapUsers.find(
+      (user) => user.id === targetStudentId,
+    );
+    if (!targetStudent) {
+      alert("Please select the student you want to refer.");
+      return;
+    }
+    if (targetStudent.id === myUserId) {
+      alert("You cannot refer yourself.");
+      return;
+    }
+
+    const targetCollegeId = Number(targetStudent.collegeId ?? collegeId);
+    const targetYearLevelId = Number(targetStudent.yearLevelId ?? 0);
+    if (!targetCollegeId || !targetYearLevelId) {
+      alert(
+        "The selected student has no college or year level assigned. Please contact the admin.",
+      );
       return;
     }
     if (!activeAcademicYearId) {
@@ -557,9 +755,10 @@ export default function MyReferrals() {
     }
 
     const reasonText = selectedReasons.join(", ");
-    const selectedCollegeName = colleges.find((item) => item.id === collegeId)?.name ?? "";
+    const selectedCollegeName =
+      colleges.find((item) => item.id === targetCollegeId)?.name ?? "";
     const metadata = [
-      `Name: ${normalizeSentenceCaseName(studentName)}`,
+      `Name: ${fullBootstrapName(targetStudent)}`,
       selectedCollegeName ? `College: ${selectedCollegeName}` : "",
       `Course: ${course.trim()}`,
     ].filter(Boolean);
@@ -568,12 +767,11 @@ export default function MyReferrals() {
     try {
       setSaving(true);
       const res = await createReferral({
-        studentId: myUserId,
+        studentId: targetStudent.id,
         referredByUserId: myUserId,
         academicYearId: activeAcademicYearId,
-        collegeId: currentBootstrapUser.collegeId,
-        yearLevelId: currentBootstrapUser.yearLevelId,
-        referredDate: new Date().toISOString().slice(0, 10),
+        collegeId: targetCollegeId,
+        yearLevelId: targetYearLevelId,
         reason: reasonText,
         notes: metadata.join("\n"),
         status: "Pending",
@@ -596,9 +794,9 @@ export default function MyReferrals() {
       setDirectionFilter("sent");
       setFilterDate("");
       setOpen(false);
-      setStudentName("");
-      setCollegeId(Number(currentBootstrapUser.collegeId || 0));
-      setCourse(String(currentBootstrapUser.courseName || "").trim());
+      setTargetStudentId(0);
+      setCollegeId(Number(currentBootstrapUser?.collegeId || 0));
+      setCourse(String(currentBootstrapUser?.courseName || "").trim());
       setSelectedReasons([]);
       setNotes("");
       navigate(`/app/my-referrals/${res.id}`);
@@ -622,7 +820,14 @@ export default function MyReferrals() {
           }}
         >
           <div>
-            <h1 style={{ margin: 0, fontSize: 28, letterSpacing: -0.3, color: "#0f172a" }}>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: 28,
+                letterSpacing: -0.3,
+                color: "#0f172a",
+              }}
+            >
               My Referrals
             </h1>
             <p style={{ margin: "6px 0 0", color: "#64748b" }}>
@@ -630,13 +835,19 @@ export default function MyReferrals() {
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
             <button
               onClick={() => setOpen(true)}
-              disabled
               style={{ ...btnPrimary, width: 56, padding: 0 }}
-              title="Students cannot refer themselves"
-              aria-label="Students cannot refer themselves"
+              title="Create Referral"
+              aria-label="Create Referral"
             >
               <Plus size={18} />
             </button>
@@ -669,7 +880,8 @@ export default function MyReferrals() {
                   onClick={() => setShowDateCalendar((prev) => !prev)}
                   style={{
                     ...iconButton,
-                    background: filterDate || showDateCalendar ? "#0f172a" : "white",
+                    background:
+                      filterDate || showDateCalendar ? "#0f172a" : "white",
                     color: filterDate || showDateCalendar ? "white" : "#0f172a",
                     border:
                       filterDate || showDateCalendar
@@ -699,35 +911,77 @@ export default function MyReferrals() {
                       gap: 12,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
                       <button
                         type="button"
-                        onClick={() => setCalendarMonth((prev) => shiftMonth(prev, -1))}
-                        style={{ ...iconButton, width: 34, height: 34, borderRadius: 10 }}
+                        onClick={() =>
+                          setCalendarMonth((prev) => shiftMonth(prev, -1))
+                        }
+                        style={{
+                          ...iconButton,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 10,
+                        }}
                         aria-label="Previous month"
                       >
                         <span style={{ fontSize: 18, lineHeight: 1 }}>‹</span>
                       </button>
                       <div style={{ fontWeight: 900, fontSize: 15 }}>
-                        {calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+                        {calendarMonth.toLocaleDateString(undefined, {
+                          month: "long",
+                          year: "numeric",
+                        })}
                       </div>
                       <button
                         type="button"
-                        onClick={() => setCalendarMonth((prev) => shiftMonth(prev, 1))}
-                        style={{ ...iconButton, width: 34, height: 34, borderRadius: 10 }}
+                        onClick={() =>
+                          setCalendarMonth((prev) => shiftMonth(prev, 1))
+                        }
+                        style={{
+                          ...iconButton,
+                          width: 34,
+                          height: 34,
+                          borderRadius: 10,
+                        }}
                         aria-label="Next month"
                       >
                         <span style={{ fontSize: 18, lineHeight: 1 }}>›</span>
                       </button>
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6, textAlign: "center", color: "#64748b", fontSize: 11, fontWeight: 900 }}>
-                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                        <div key={day}>{day}</div>
-                      ))}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(7, 1fr)",
+                        gap: 6,
+                        textAlign: "center",
+                        color: "#64748b",
+                        fontSize: 11,
+                        fontWeight: 900,
+                      }}
+                    >
+                      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                        (day) => (
+                          <div key={day}>{day}</div>
+                        ),
+                      )}
                     </div>
 
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(7, 1fr)",
+                        gap: 6,
+                      }}
+                    >
                       {calendarCells.map((cell) => (
                         <button
                           key={cell.key}
@@ -766,19 +1020,43 @@ export default function MyReferrals() {
                           aria-label={`Filter ${cell.key}`}
                         >
                           <span>{cell.label}</span>
-                          <span style={{ width: 8, height: 8, borderRadius: 999, background: cell.hasSchedule ? "#22c55e" : "transparent" }} />
+                          <span
+                            style={{
+                              width: 8,
+                              height: 8,
+                              borderRadius: 999,
+                              background: cell.hasSchedule
+                                ? "#22c55e"
+                                : "transparent",
+                            }}
+                          />
                         </button>
                       ))}
                     </div>
 
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 800 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 12,
+                        fontWeight: 800,
+                      }}
+                    >
                       <button
                         type="button"
                         onClick={() => {
                           setFilterDate("");
                           setShowDateCalendar(false);
                         }}
-                        style={{ border: "none", background: "transparent", color: "#2563eb", cursor: "pointer", fontWeight: 900 }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "#2563eb",
+                          cursor: "pointer",
+                          fontWeight: 900,
+                        }}
                       >
                         Clear
                       </button>
@@ -790,7 +1068,13 @@ export default function MyReferrals() {
                           setCalendarMonth(startOfMonth(new Date(today)));
                           setShowDateCalendar(false);
                         }}
-                        style={{ border: "none", background: "transparent", color: "#2563eb", cursor: "pointer", fontWeight: 900 }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: "#2563eb",
+                          cursor: "pointer",
+                          fontWeight: 900,
+                        }}
                       >
                         Today
                       </button>
@@ -799,16 +1083,30 @@ export default function MyReferrals() {
                 )}
               </div>
 
-              <button type="button" style={filterChip(directionFilter === "received")} onClick={() => setDirectionFilter("received")}>
+              <button
+                type="button"
+                style={filterChip(directionFilter === "received")}
+                onClick={() => setDirectionFilter("received")}
+              >
                 Received ({receivedCount})
               </button>
-              <button type="button" style={filterChip(directionFilter === "sent")} onClick={() => setDirectionFilter("sent")}>
+              <button
+                type="button"
+                style={filterChip(directionFilter === "sent")}
+                onClick={() => setDirectionFilter("sent")}
+              >
                 Sent Out ({sentCount})
               </button>
-              <button type="button" style={filterChip(directionFilter === "all")} onClick={() => setDirectionFilter("all")}>
+              <button
+                type="button"
+                style={filterChip(directionFilter === "all")}
+                onClick={() => setDirectionFilter("all")}
+              >
                 All ({myRelatedReferrals.length})
               </button>
-              <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>Total: {visibleReferrals.length}</div>
+              <div style={{ color: "#64748b", fontSize: 13, fontWeight: 900 }}>
+                Total: {visibleReferrals.length}
+              </div>
             </div>
           </div>
 
@@ -833,8 +1131,12 @@ export default function MyReferrals() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ background: "rgba(15,23,42,0.04)" }}>
-                    {showScheduleColumns && <th style={tableHead}>Schedule Date</th>}
-                    {showScheduleColumns && <th style={tableHead}>Schedule Time</th>}
+                    {showScheduleColumns && (
+                      <th style={tableHead}>Schedule Date</th>
+                    )}
+                    {showScheduleColumns && (
+                      <th style={tableHead}>Schedule Time</th>
+                    )}
                     <th style={tableHead}>Reason</th>
                     <th style={tableHead}>Status</th>
                     <th style={tableHead}></th>
@@ -842,62 +1144,104 @@ export default function MyReferrals() {
                 </thead>
                 <tbody>
                   {visibleReferrals.map((referral) => {
-                    const scheduleDate = getStudentReferralScheduleDate(referral);
-                    const scheduleTime = getStudentReferralScheduleTime(referral);
+                    const scheduleDate =
+                      getStudentReferralScheduleDate(referral);
+                    const scheduleTime =
+                      getStudentReferralScheduleTime(referral);
                     const approved = isStudentReferralApproved(referral.status);
+                    const completeSchedule =
+                      hasCompleteStudentReferralSchedule(referral);
                     const isReceivedReferral =
                       referral.student_user_id === myUserId &&
                       referral.referred_by_user_id !== myUserId;
 
                     return (
-                    <tr key={referral.referral_id}>
-                      {showScheduleColumns && (
+                      <tr key={referral.referral_id}>
+                        {showScheduleColumns && (
+                          <td style={tableCell}>
+                            <div style={{ fontWeight: 900 }}>
+                              {isReceivedReferral
+                                ? completeSchedule
+                                  ? formatDate(scheduleDate)
+                                  : approved
+                                    ? "Schedule pending"
+                                    : "Waiting for approval"
+                                : "Status only"}
+                            </div>
+                          </td>
+                        )}
+                        {showScheduleColumns && (
+                          <td style={tableCell}>
+                            <div style={{ fontWeight: 800, color: "#334155" }}>
+                              {isReceivedReferral && completeSchedule
+                                ? formatTime(scheduleTime)
+                                : "-"}
+                            </div>
+                          </td>
+                        )}
                         <td style={tableCell}>
-                          <div style={{ fontWeight: 900 }}>
-                            {isReceivedReferral
-                              ? approved
-                                ? formatDate(scheduleDate)
-                                : "Waiting for approval"
-                              : "Status only"}
+                          <div style={{ fontWeight: 900, color: "#0f172a" }}>
+                            {referral.reason}
                           </div>
                         </td>
-                      )}
-                      {showScheduleColumns && (
                         <td style={tableCell}>
-                          <div style={{ fontWeight: 800, color: "#334155" }}>
-                            {isReceivedReferral && approved ? formatTime(scheduleTime) : "-"}
+                          <ReferralChip status={referral.status} />
+                        </td>
+                        <td style={tableCell}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            {canDownloadStudentCallSlip(referral) && (
+                              <button
+                                type="button"
+                                onClick={() => openStudentReferralCallSlip(referral)}
+                                title="Download or print call slip"
+                                aria-label="Download or print call slip"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  width: 34,
+                                  height: 34,
+                                  borderRadius: 999,
+                                  border: "1px solid rgba(15,23,42,0.20)",
+                                  background: "rgba(15,23,42,0.04)",
+                                  color: "#0f172a",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <FileDown size={14} />
+                              </button>
+                            )}
+                            <Link
+                              to={`/app/my-referrals/${referral.referral_id}`}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                border: "1px solid rgba(15,23,42,0.20)",
+                                background: "rgba(15,23,42,0.04)",
+                                color: "#0f172a",
+                                fontWeight: 900,
+                                fontSize: 12,
+                                textDecoration: "none",
+                              }}
+                            >
+                              <Eye size={14} />
+                              View
+                            </Link>
                           </div>
                         </td>
-                      )}
-                      <td style={tableCell}>
-                        <div style={{ fontWeight: 900, color: "#0f172a" }}>{referral.reason}</div>
-                      </td>
-                      <td style={tableCell}>
-                        <ReferralChip status={referral.status} />
-                      </td>
-                      <td style={tableCell}>
-                        <Link
-                          to={`/app/my-referrals/${referral.referral_id}`}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            border: "1px solid rgba(15,23,42,0.20)",
-                            background: "rgba(15,23,42,0.04)",
-                            color: "#0f172a",
-                            fontWeight: 900,
-                            fontSize: 12,
-                            textDecoration: "none",
-                          }}
-                        >
-                          <Eye size={14} />
-                          View
-                        </Link>
-                      </td>
-                    </tr>
-                  )})}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -921,22 +1265,28 @@ export default function MyReferrals() {
             Your information will remain confidential.
           </div>
 
-          <div>
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>Name</div>
-            <input
-              value={studentName}
-              onChange={(e) =>
-                setStudentName(toSentenceCaseNameInput(e.target.value))
-              }
-              placeholder="Enter student name"
-              style={inputStyle}
-            />
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+          >
             <div>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>College</div>
-              <DropdownSelect value={collegeId} onChange={(e) => setCollegeId(Number(e.target.value))}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  fontWeight: 900,
+                  marginBottom: 6,
+                }}
+              >
+                College
+              </div>
+              <DropdownSelect
+                value={collegeId}
+                onChange={(e) => {
+                  setCollegeId(Number(e.target.value));
+                  setCourse("");
+                  setTargetStudentId(0);
+                }}
+              >
                 <option value={0}>Select college</option>
                 {colleges.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -947,8 +1297,24 @@ export default function MyReferrals() {
             </div>
 
             <div>
-              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>Course</div>
-              <DropdownSelect value={course} onChange={(e) => setCourse(e.target.value)} disabled={!collegeId}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#64748b",
+                  fontWeight: 900,
+                  marginBottom: 6,
+                }}
+              >
+                Course
+              </div>
+              <DropdownSelect
+                value={course}
+                onChange={(e) => {
+                  setCourse(e.target.value);
+                  setTargetStudentId(0);
+                }}
+                disabled={!collegeId}
+              >
                 <option value="">
                   {!collegeId
                     ? "Select college first"
@@ -956,6 +1322,10 @@ export default function MyReferrals() {
                       ? "Select course"
                       : "No courses found"}
                 </option>
+                {course &&
+                  !availableCourses.some((item) => item.name === course) && (
+                    <option value={course}>{course}</option>
+                  )}
                 {availableCourses.map((item) => (
                   <option key={item.id} value={item.name}>
                     {item.name}
@@ -966,7 +1336,47 @@ export default function MyReferrals() {
           </div>
 
           <div>
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: "#64748b",
+                fontWeight: 900,
+                marginBottom: 6,
+              }}
+            >
+              Student Name
+            </div>
+            <DropdownSelect
+              value={targetStudentId}
+              onChange={(e) => setTargetStudentId(Number(e.target.value))}
+              disabled={!collegeId || !course.trim()}
+            >
+              <option value={0}>
+                {!collegeId
+                  ? "Select college first"
+                  : !course.trim()
+                    ? "Select course first"
+                    : targetStudents.length
+                      ? "Select student"
+                      : "No students found"}
+              </option>
+              {targetStudents.map((student) => (
+                <option key={student.id} value={student.id}>
+                  {fullBootstrapName(student)}
+                </option>
+              ))}
+            </DropdownSelect>
+          </div>
+
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "#64748b",
+                fontWeight: 900,
+                marginBottom: 6,
+              }}
+            >
               Reason for Referral * (Select all that apply)
             </div>
 
@@ -1006,7 +1416,14 @@ export default function MyReferrals() {
           </div>
 
           <div>
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900, marginBottom: 6 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: "#64748b",
+                fontWeight: 900,
+                marginBottom: 6,
+              }}
+            >
               Notes / Details (optional)
             </div>
             <textarea
@@ -1017,11 +1434,27 @@ export default function MyReferrals() {
             />
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
             <button onClick={() => setOpen(false)} style={btn}>
               Cancel
             </button>
-            <button onClick={addReferral} style={btnPrimary} disabled={saving}>
+            <button
+              onClick={addReferral}
+              style={{
+                ...btnPrimary,
+                opacity: canSaveReferral ? 1 : 0.55,
+                cursor: canSaveReferral ? "pointer" : "not-allowed",
+              }}
+              disabled={!canSaveReferral}
+              title={saveReferralTitle}
+            >
               {saving ? "Saving..." : "Save"}
             </button>
           </div>

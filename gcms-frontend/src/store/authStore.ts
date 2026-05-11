@@ -13,6 +13,10 @@ type ApiUser = {
   role: string; // "ADMIN" | "STAFF" | "TEACHER" | "NON_TEACHING_PERSONNEL" | "STUDENT"
   profilePhoto?: string | null;
   profile_photo?: string | null;
+  collegeId?: number | null;
+  college_id?: number | null;
+  yearLevelId?: number | null;
+  year_level_id?: number | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -168,6 +172,9 @@ export const useAuthStore = create<AuthState>((set) => ({
         email: emailOut,
         role,
         profilePhoto: profilePhoto || undefined,
+        collegeId: Number(apiUser.collegeId ?? apiUser.college_id ?? 0) || undefined,
+        yearLevelId:
+          Number(apiUser.yearLevelId ?? apiUser.year_level_id ?? 0) || undefined,
       };
 
       // Bridge auth data to legacy useGCMS store (student pages still consume it).
@@ -178,6 +185,8 @@ export const useAuthStore = create<AuthState>((set) => ({
         fname: authUser.fname,
         lname: authUser.lname,
         email: authUser.email,
+        collegeId: authUser.collegeId,
+        yearLevelId: authUser.yearLevelId,
       } as const;
 
       gcms.setUsers((prev) => {

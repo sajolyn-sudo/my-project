@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
+  FileDown,
   GraduationCap,
   ListChecks,
   StickyNote,
@@ -10,6 +11,10 @@ import {
 import { useParams, Navigate, useNavigate } from "react-router-dom";
 import { useGCMS, fullName } from "../store/gcmsStore";
 import useStudentPortalSync from "../hooks/useStudentPortalSync";
+import {
+  canPrintReferralCallSlip,
+  openReferralCallSlipPrint,
+} from "../lib/referralCallSlipPrint";
 
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
@@ -76,7 +81,8 @@ function formatTime(value?: string) {
   const [hourPart, minutePart] = String(value).split(":");
   const hours = Number(hourPart);
   const minutes = Number(minutePart);
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes))
+    return String(value);
   const suffix = hours >= 12 ? "PM" : "AM";
   const displayHour = hours % 12 || 12;
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
@@ -88,6 +94,10 @@ function statusColor(status: string) {
 
 function isStudentReferralApproved(status: string) {
   return status === "approved" || status === "complete" || status === "ongoing";
+}
+
+function hasCompleteSchedule(date?: string, time?: string) {
+  return Boolean(String(date || "").trim() && String(time || "").trim());
 }
 
 function studentReferralStatusLabel(status: string) {
@@ -137,7 +147,10 @@ export default function MyReferralView() {
     if (!myUserId || !referralId) return null;
     return (
       referrals.find(
-        (x) => x.referral_id === referralId && x.student_user_id === myUserId,
+        (x) =>
+          x.referral_id === referralId &&
+          (x.student_user_id === myUserId ||
+            x.referred_by_user_id === myUserId),
       ) ?? null
     );
   }, [myUserId, referralId, referrals]);
@@ -162,6 +175,31 @@ export default function MyReferralView() {
   const approved = isStudentReferralApproved(r.status);
   const scheduleDate = approved ? r.referred_date : "";
   const scheduleTime = approved ? r.referred_time : "";
+  const completeSchedule = approved
+    ? hasCompleteSchedule(scheduleDate, scheduleTime)
+    : false;
+  const canDownloadCallSlip =
+    r.student_user_id === myUserId &&
+    canPrintReferralCallSlip({
+      status: r.status,
+      referredDate: r.referred_date,
+      referredTime: r.referred_time,
+    });
+  const openStudentCallSlip = () => {
+    if (!canDownloadCallSlip) return;
+
+    openReferralCallSlipPrint({
+      referralId: r.referral_id,
+      studentName: parsed.name || fullName(currentUser),
+      studentEmail: currentUser.email,
+      courseYearSection: parsed.course || "-",
+      scheduleDate: String(r.referred_date || ""),
+      scheduleTime: String(r.referred_time || ""),
+      reason: r.reason,
+      referredByName: "Guidance Office",
+      issuedDate: new Date().toISOString().slice(0, 10),
+    });
+  };
 
   return (
     <div style={pageStyle}>
@@ -183,34 +221,59 @@ export default function MyReferralView() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onMouseDown={() => setBackActive(true)}
-            onMouseUp={() => setBackActive(false)}
-            onMouseLeave={() => setBackActive(false)}
-            onClick={() => navigate("/app/my-referrals")}
-            title="Back"
-            aria-label="Back"
-            style={{
-              width: 46,
-              height: 46,
-              borderRadius: 999,
-              border: backActive
-                ? "1px solid rgba(2,6,23,0.98)"
-                : "1px solid rgba(15,23,42,0.16)",
-              background: backActive
-                ? "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))"
-                : "white",
-              color: backActive ? "white" : "#0f172a",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
-            }}
-          >
-            <ArrowLeft size={18} />
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            {canDownloadCallSlip && (
+              <button
+                type="button"
+                onClick={openStudentCallSlip}
+                title="Download or print call slip"
+                aria-label="Download or print call slip"
+                style={{
+                  width: 46,
+                  height: 46,
+                  borderRadius: 999,
+                  border: "1px solid rgba(15,23,42,0.16)",
+                  background: "white",
+                  color: "#0f172a",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
+                }}
+              >
+                <FileDown size={18} />
+              </button>
+            )}
+            <button
+              type="button"
+              onMouseDown={() => setBackActive(true)}
+              onMouseUp={() => setBackActive(false)}
+              onMouseLeave={() => setBackActive(false)}
+              onClick={() => navigate("/app/my-referrals")}
+              title="Back"
+              aria-label="Back"
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 999,
+                border: backActive
+                  ? "1px solid rgba(2,6,23,0.98)"
+                  : "1px solid rgba(15,23,42,0.16)",
+                background: backActive
+                  ? "linear-gradient(180deg, rgba(15,23,42,0.96), rgba(2,6,23,0.98))"
+                  : "white",
+                color: backActive ? "white" : "#0f172a",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+                boxShadow: "0 8px 18px rgba(2,6,23,0.08)",
+              }}
+            >
+              <ArrowLeft size={18} />
+            </button>
+          </div>
         </div>
 
         <div style={cardStyle}>
@@ -251,7 +314,11 @@ export default function MyReferralView() {
                 Schedule Date
               </div>
               <div style={{ fontWeight: 950 }}>
-                {approved ? formatDate(scheduleDate || "") : "Waiting for approval"}
+                {completeSchedule
+                  ? formatDate(scheduleDate || "")
+                  : approved
+                    ? "Schedule pending"
+                    : "Waiting for approval"}
               </div>
             </div>
 
@@ -260,7 +327,9 @@ export default function MyReferralView() {
                 <CalendarDays size={14} />
                 Schedule Time
               </div>
-              <div style={{ fontWeight: 950 }}>{approved ? formatTime(scheduleTime) : "-"}</div>
+              <div style={{ fontWeight: 950 }}>
+                {completeSchedule ? formatTime(scheduleTime) : "-"}
+              </div>
             </div>
 
             <div>
@@ -268,7 +337,9 @@ export default function MyReferralView() {
                 <UserRound size={14} />
                 Name
               </div>
-              <div style={{ fontWeight: 950 }}>{parsed.name || fullName(currentUser)}</div>
+              <div style={{ fontWeight: 950 }}>
+                {parsed.name || fullName(currentUser)}
+              </div>
             </div>
 
             <div>
@@ -285,7 +356,14 @@ export default function MyReferralView() {
               <ListChecks size={14} />
               Reason
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                marginTop: 8,
+              }}
+            >
               {reasonList.length > 0 ? (
                 reasonList.map((reason) => (
                   <span key={reason} style={chip}>

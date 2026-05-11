@@ -1,12 +1,13 @@
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { useAuthStore } from "../store/authStore";
 import logo from "../assets/logo.png";
 
 export default function Login() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
 
   const [email, setEmail] = useState("");
@@ -16,6 +17,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const emailRef = useRef<HTMLInputElement | null>(null);
   const passwordRef = useRef<HTMLInputElement | null>(null);
+  const nextPath = useMemo(() => {
+    const next = String(searchParams.get("next") || "").trim();
+    if (!next || !next.startsWith("/") || next.startsWith("//")) return "";
+    return next;
+  }, [searchParams]);
 
   // Force a blank login form on page load.
   useEffect(() => {
@@ -54,7 +60,8 @@ export default function Login() {
 
       const role = String(res.user.role || "").toUpperCase();
 
-      if (role === "STUDENT") nav("/app/my-counseling");
+      if (nextPath) nav(nextPath);
+      else if (role === "STUDENT") nav("/app/my-counseling");
       else if (role === "TEACHER" || role === "NON_TEACHING_PERSONNEL") {
         nav("/app/referrals");
       } else nav("/app/dashboard");

@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  FileDown,
   GraduationCap,
   Hash,
   School,
@@ -18,8 +19,15 @@ import {
   listReferralLogs,
   updateReferral,
 } from "../lib/entitiesApi";
-import { canApproveSystemReferrals } from "../lib/referralApproval";
+import {
+  canApproveSystemReferrals,
+  canViewEverySystemReferral,
+} from "../lib/referralApproval";
 import { referralStatusLabel } from "../lib/referralStatus";
+import {
+  canPrintReferralCallSlip,
+  downloadReferralCallSlipWord,
+} from "../lib/referralCallSlipPrint";
 import SuccessNoticeModal from "../components/SuccessNoticeModal";
 
 type Role =
@@ -58,6 +66,9 @@ type Referral = {
   yearLevelId: number;
   referredDate?: string | null;
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string; // comma separated
   notes?: string;
   status: "Pending" | "Approved" | "Complete";
@@ -121,6 +132,26 @@ function formatTimeShort(value?: string | null) {
   return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
+function formatDateTimeParts(value?: string | null) {
+  if (!value) return { date: "—", time: "—" };
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return { date: String(value), time: "—" };
+  }
+
+  return {
+    date: parsed.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    }),
+    time: parsed.toLocaleTimeString(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }),
+  };
+}
+
 function normalizeReferralStatus(status: unknown): Referral["status"] {
   const normalized = String(status || "")
     .trim()
@@ -154,6 +185,9 @@ function normalizeReferral(item: {
   yearLevelId: number;
   referredDate?: string | null;
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string;
   notes?: string;
   status: unknown;
@@ -174,6 +208,9 @@ function normalizeReferrals(items: Array<{
   yearLevelId: number;
   referredDate?: string | null;
   referredTime?: string | null;
+  approvedAt?: string | null;
+  scheduleUpdatedAt?: string | null;
+  completedAt?: string | null;
   reason: string;
   notes?: string;
   status: unknown;
@@ -198,6 +235,9 @@ function mergeReferralRecord(
     status: shouldKeepCachedStatus ? cachedStatus : apiStatus,
     referredDate: apiItem.referredDate ?? cachedItem.referredDate ?? null,
     referredTime: apiItem.referredTime ?? cachedItem.referredTime ?? null,
+    approvedAt: apiItem.approvedAt ?? cachedItem.approvedAt ?? null,
+    scheduleUpdatedAt: apiItem.scheduleUpdatedAt ?? cachedItem.scheduleUpdatedAt ?? null,
+    completedAt: apiItem.completedAt ?? cachedItem.completedAt ?? null,
     notes: apiItem.notes ?? cachedItem.notes,
   });
 }
@@ -521,9 +561,12 @@ export default function ReferralView() {
   const referralId = Number(id);
   const authUser = useAuthStore((s) => s.user);
   const canManageReferralStatus = canApproveSystemReferrals(authUser);
+  const canViewAllSystemReferrals = canViewEverySystemReferral(authUser);
   const listHref = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("from") === "reports") return "/app/reports";
     if (authUser?.role === "ADMIN" || authUser?.role === "STAFF") {
-      return "/app/counseling?tab=referrals";
+      return "/app/referrals";
     }
     return `/app/referrals${location.search || ""}`;
   }, [authUser?.role, location.search]);
@@ -689,10 +732,6 @@ export default function ReferralView() {
     "Others (Specify in Notes)",
   ];
 
-  const [status, setStatus] = useState<Referral["status"]>("Pending");
-  useEffect(() => {
-    setStatus(found?.status ?? "Pending");
-  }, [found?.status]);
   const [detailsText, setDetailsText] = useState("");
   useEffect(() => {
     setDetailsText(found?.notes ?? "");
@@ -712,43 +751,23 @@ export default function ReferralView() {
     setCreatedByUserId(authUser?.id ?? found?.referredByUserId ?? 0);
   }, [authUser?.id, found?.referredByUserId]);
 
-  const saveStatus = () => {
+  const saveDetails = () => {
     if (!found) return;
     if (!canManageReferralStatus) {
       showToast(
-        "Only the admin or Carissa can approve and update referral status.",
-        "error",
-      );
-      return;
-    }
-    if (
-      status === "Approved" &&
-      (!String(found.referredDate || "").trim() || !String(found.referredTime || "").trim())
-    ) {
-      showToast(
-        "Approve the referral from the referrals list so you can set its schedule first.",
-        "error",
-      );
-      return;
-    }
-    if (
-      status === "Complete" &&
-      !hasReferralReachedScheduledSession(found)
-    ) {
-      showToast(
-        "Complete will only be available after the scheduled date and time have been reached.",
+        "Only the admin or Carissa can update referral details.",
         "error",
       );
       return;
     }
 
-    updateReferral({ id: found.id, status, notes: detailsText })
+    updateReferral({ id: found.id, status: found.status, notes: detailsText })
       .then((res) => {
         const cached = normalizeReferrals(load<any[]>(REF_KEY, []));
         const next = mergeReferralRecords(normalizeReferrals(res.referrals ?? []), cached);
         setReferrals(next);
         save(REF_KEY, next);
-        showToast("Referral saved!", "success");
+        showToast("Referral details saved!", "success");
       })
       .catch((e: any) => {
         showToast(e?.message || "Failed to save referral.", "error");
@@ -806,6 +825,47 @@ export default function ReferralView() {
       .filter((l) => l.referralId === found.id)
       .sort((a, b) => (a.actionDate < b.actionDate ? 1 : -1));
   }, [logs, found]);
+
+  const currentStatus = found?.status ?? "Pending";
+  const statusHistoryRows = useMemo(() => {
+    if (!found) return [];
+
+    return [
+      {
+        label: "Approved",
+        timestamp:
+          found.approvedAt ??
+          (found.status !== "Pending" &&
+          String(found.referredDate || "").trim() &&
+          String(found.referredTime || "").trim()
+            ? `${String(found.referredDate).trim()}T${String(found.referredTime).trim()}:00`
+            : null),
+        details:
+          found.referredDate || found.referredTime
+            ? `Schedule: ${formatDateShort(found.referredDate)} ${formatTimeShort(found.referredTime)}`
+            : "Schedule pending",
+      },
+      {
+        label: "Schedule Changed",
+        timestamp: found.scheduleUpdatedAt ?? null,
+        details:
+          found.scheduleUpdatedAt && (found.referredDate || found.referredTime)
+            ? `Updated to ${formatDateShort(found.referredDate)} ${formatTimeShort(found.referredTime)}`
+            : "No schedule change recorded",
+      },
+      {
+        label: "Completed",
+        timestamp: found.completedAt ?? null,
+        details:
+          found.completedAt
+            ? "Referral closed"
+            : "Not completed yet",
+      },
+    ].map((row) => ({
+      ...row,
+      ...formatDateTimeParts(row.timestamp),
+    }));
+  }, [found]);
 
   // Styles
   const page: React.CSSProperties = { display: "grid", gap: 14 };
@@ -1132,6 +1192,39 @@ export default function ReferralView() {
     );
   }
 
+  const canViewThisReferral =
+    canViewAllSystemReferrals || found.referredByUserId === authUser?.id;
+  if (!canViewThisReferral) {
+    return (
+      <div style={page}>
+        <Toast
+          open={toast.open}
+          message={toast.message}
+          tone={toast.tone}
+          onClose={() => setToast((p) => ({ ...p, open: false }))}
+        />
+
+        <div style={topBar}>
+          <h2 style={pageTitle}>Referral Details</h2>
+          <ReferralDetailActionLink
+            to={listHref}
+            title="Back to Referrals"
+            ariaLabel="Back to Referrals"
+            baseStyle={backIconLink}
+          >
+            <ArrowLeft size={18} />
+          </ReferralDetailActionLink>
+        </div>
+
+        <div style={card}>
+          <div style={{ opacity: 0.8 }}>
+            You do not have access to this referral.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const student = users.find((u) => u.id === found.studentId);
   const referredBy = users.find((u) => u.id === found.referredByUserId);
   const ay = years.find((y) => y.id === found.academicYearId);
@@ -1144,8 +1237,24 @@ export default function ReferralView() {
 
   const selectedReasons = splitReasons(found.reason);
   const selected = new Set(selectedReasons);
-  const canCompleteReferral = hasReferralReachedScheduledSession(found);
   const showOverdueWarning = isReferralOverdue(found);
+  const canDownloadCallSlip =
+    canViewAllSystemReferrals && canPrintReferralCallSlip(found);
+  const openDetailsCallSlip = () => {
+    if (!canDownloadCallSlip) return;
+
+    downloadReferralCallSlipWord({
+      referralId: found.id,
+      studentName,
+      studentEmail: student?.email,
+      courseYearSection: [college?.name, yl?.name].filter(Boolean).join(" / "),
+      scheduleDate: String(found.referredDate || ""),
+      scheduleTime: String(found.referredTime || ""),
+      reason: found.reason,
+      referredByName: referredBy ? labelUserById(referredBy.id) : "Guidance Office",
+      issuedDate: new Date().toISOString().slice(0, 10),
+    });
+  };
 
   return (
     <div style={page}>
@@ -1164,6 +1273,16 @@ export default function ReferralView() {
 
       <div style={topBar}>
         <h2 style={pageTitle}>Referral Details</h2>
+        {canDownloadCallSlip && (
+          <ReferralDetailActionButton
+            onClick={openDetailsCallSlip}
+            title="Download call slip as Word"
+            ariaLabel="Download call slip as Word"
+            baseStyle={backIconLink}
+          >
+            <FileDown size={18} />
+          </ReferralDetailActionButton>
+        )}
         <ReferralDetailActionLink
           to={listHref}
           title="Back to Referrals"
@@ -1289,14 +1408,14 @@ export default function ReferralView() {
                 style={{
                   ...infoChipValue,
                   color:
-                    status === "Complete"
+                    currentStatus === "Complete"
                       ? "#166534"
-                      : status === "Approved"
+                      : currentStatus === "Approved"
                         ? "#1d4ed8"
                         : "#92400e",
                 }}
               >
-                {referralStatusLabel(status)}
+                {referralStatusLabel(currentStatus)}
               </div>
             </div>
           </div>
@@ -1376,13 +1495,13 @@ export default function ReferralView() {
             Created: <b>{found.createdAt}</b>
           </div>
           <ReferralDetailActionButton
-            onClick={saveStatus}
-            title="Save"
-            ariaLabel="Save"
+            onClick={saveDetails}
+            title="Save Details"
+            ariaLabel="Save Details"
             baseStyle={primaryButton}
             disabled={!canManageReferralStatus}
           >
-            Save
+            Save Details
           </ReferralDetailActionButton>
         </div>
       </div>
@@ -1392,70 +1511,136 @@ export default function ReferralView() {
 
         <div
           style={{
-            display: "flex",
-            alignItems: "end",
-            gap: 10,
-            flexWrap: "wrap",
+            display: "grid",
+            gap: 16,
+            gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
+            alignItems: "start",
           }}
         >
-          <div style={{ width: 220 }}>
+          <div
+            style={{
+              borderRadius: 16,
+              border: showOverdueWarning
+                ? "1px solid rgba(220,38,38,0.22)"
+                : "1px solid rgba(148,163,184,0.22)",
+              background: showOverdueWarning
+                ? "rgba(254,242,242,0.94)"
+                : "rgba(248,250,252,0.92)",
+              padding: 16,
+              display: "grid",
+              gap: 12,
+            }}
+          >
             <div style={label}>Referral Status</div>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as Referral["status"])}
-              disabled={!canManageReferralStatus}
-              style={{
-                ...inputStyle,
-                width: "100%",
-                border:
-                  showOverdueWarning
-                    ? "1px solid rgba(220,38,38,0.35)"
-                    : inputStyle.border,
-                background: showOverdueWarning
-                  ? "rgba(254,242,242,0.96)"
-                  : inputStyle.background,
-              }}
-            >
-              <option value="Pending">{referralStatusLabel("Pending")}</option>
-              <option
-                value="Approved"
-                disabled={!String(found?.referredDate || "").trim() || !String(found?.referredTime || "").trim()}
-              >
-                Approved
-              </option>
-              <option value="Complete" disabled={!canCompleteReferral}>
-                Complete
-              </option>
-            </select>
             <div
               style={{
-                marginTop: 8,
-                fontSize: 12,
-                fontWeight: 700,
-                color: !canManageReferralStatus
-                  ? "#64748b"
-                  : canCompleteReferral
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minHeight: 44,
+                borderRadius: 999,
+                padding: "0 16px",
+                border:
+                  currentStatus === "Complete"
+                    ? "1px solid rgba(34,197,94,0.28)"
+                    : currentStatus === "Approved"
+                      ? "1px solid rgba(59,130,246,0.28)"
+                      : "1px solid rgba(245,158,11,0.28)",
+                background:
+                  currentStatus === "Complete"
+                    ? "rgba(240,253,244,0.96)"
+                    : currentStatus === "Approved"
+                      ? "rgba(239,246,255,0.96)"
+                      : "rgba(255,251,235,0.96)",
+                color:
+                  currentStatus === "Complete"
                     ? "#166534"
-                    : "#b45309",
+                    : currentStatus === "Approved"
+                      ? "#1d4ed8"
+                      : "#92400e",
+                fontSize: 16,
+                fontWeight: 800,
               }}
             >
-              {!canManageReferralStatus
-                ? "Only the admin or Carissa can update referral status."
-                : canCompleteReferral
-                  ? "The scheduled session has already occurred. Complete is now available."
-                  : "Complete will be available once the scheduled date and time have been reached."}
+              {referralStatusLabel(currentStatus)}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: showOverdueWarning ? "#b45309" : "#64748b",
+                lineHeight: 1.5,
+              }}
+            >
+              {showOverdueWarning
+                ? "This referral already reached its scheduled session time and is waiting to be marked complete from the referrals list."
+                : "Approval, schedule changes, and completion are managed from the referrals list. This page now shows the recorded timeline only."}
             </div>
           </div>
 
-          <ReferralDetailActionButton
-            onClick={saveStatus}
-            title="Save"
-            ariaLabel="Save"
-            baseStyle={primaryButton}
-            disabled={!canManageReferralStatus}
+          <div
+            style={{
+              borderRadius: 16,
+              border: "1px solid rgba(148,163,184,0.18)",
+              overflow: "hidden",
+              background: "rgba(255,255,255,0.9)",
+            }}
           >
-            Save
-          </ReferralDetailActionButton>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(120px, 0.9fr) minmax(120px, 0.85fr) minmax(100px, 0.7fr) minmax(160px, 1.2fr)",
+                gap: 0,
+                background: "rgba(241,245,249,0.92)",
+                borderBottom: "1px solid rgba(148,163,184,0.18)",
+              }}
+            >
+              {["Event", "Date", "Time", "Details"].map((heading) => (
+                <div
+                  key={heading}
+                  style={{
+                    padding: "12px 14px",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: "#475569",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {heading}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid" }}>
+              {statusHistoryRows.map((row, index) => (
+                <div
+                  key={row.label}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(120px, 0.9fr) minmax(120px, 0.85fr) minmax(100px, 0.7fr) minmax(160px, 1.2fr)",
+                    borderBottom:
+                      index === statusHistoryRows.length - 1
+                        ? "none"
+                        : "1px solid rgba(148,163,184,0.14)",
+                  }}
+                >
+                  <div style={{ padding: "13px 14px", fontWeight: 800, color: "#0f172a" }}>
+                    {row.label}
+                  </div>
+                  <div style={{ padding: "13px 14px", color: "#334155", fontWeight: 600 }}>
+                    {row.date}
+                  </div>
+                  <div style={{ padding: "13px 14px", color: "#334155", fontWeight: 600 }}>
+                    {row.time}
+                  </div>
+                  <div style={{ padding: "13px 14px", color: "#64748b", fontWeight: 600 }}>
+                    {row.details}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

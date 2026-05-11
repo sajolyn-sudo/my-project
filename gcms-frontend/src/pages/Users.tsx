@@ -998,17 +998,6 @@ export default function Users() {
     );
   }, [yearEndFilteredRows]);
 
-  const openYearEndModal = () => {
-    setYearEndError("");
-    setYearEndSelectedIds([]);
-    setYearEndSearchText("");
-    setShowYearEndFilters(false);
-    setYearEndCollegeFilterId(0);
-    setYearEndCourseFilterId(0);
-    setYearEndYearLevelFilterId(0);
-    setYearEndSectionFilter("");
-    setIsYearEndOpen(true);
-  };
   const closeYearEndModal = () => {
     if (yearEndProcessing) return;
     setIsYearEndOpen(false);
@@ -1282,9 +1271,6 @@ export default function Users() {
       >
         <h2 style={{ margin: 0, fontWeight: 800 }}>User Management</h2>
         <div style={{ display: "flex", gap: 10 }}>
-          <button style={headerActionButton(false)} onClick={openYearEndModal}>
-            Year-End Update
-          </button>
           <button
             type="button"
             style={headerIconActionButton(isYearEndResultsTriggerPressed)}
@@ -2673,23 +2659,6 @@ const addUserButtonStyle = (
   cursor: disabled ? "not-allowed" : "pointer",
   transition:
     "background-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease",
-});
-
-const headerActionButton = (
-  pressed: boolean,
-  disabled = false,
-): React.CSSProperties => ({
-  height: 40,
-  padding: "0 16px",
-  borderRadius: 12,
-  border: "1px solid #111111",
-  background: pressed && !disabled ? "#f8fafc" : "white",
-  color: "#111111",
-  fontWeight: 700,
-  cursor: disabled ? "not-allowed" : "pointer",
-  opacity: disabled ? 0.7 : 1,
-  boxShadow: "none",
-  transform: pressed && !disabled ? "translateY(1px)" : "translateY(0)",
 });
 
 const headerIconActionButton = (

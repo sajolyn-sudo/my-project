@@ -54,6 +54,17 @@ function formatDate(d: string) {
   });
 }
 
+function formatTime(value?: string | null) {
+  if (!value) return "-";
+  const [hourPart, minutePart] = String(value).split(":");
+  const hours = Number(hourPart);
+  const minutes = Number(minutePart);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return String(value);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minutes).padStart(2, "0")} ${suffix}`;
+}
+
 export default function MyCounselingView() {
   const { loading } = useStudentPortalSync();
   const { id } = useParams();
@@ -153,7 +164,17 @@ export default function MyCounselingView() {
               <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
                 Staff
               </div>
-              <div style={{ fontWeight: 950 }}>{staffUser ? fullName(staffUser) : "-"}</div>
+              <div style={{ fontWeight: 950 }}>
+                {staffUser ? fullName(staffUser) : "To be assigned"}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 900 }}>
+                Time
+              </div>
+              <div style={{ fontWeight: 950 }}>
+                {formatTime(c.counseling_time)}
+              </div>
             </div>
 
             <div style={{ gridColumn: "1 / -1" }}>

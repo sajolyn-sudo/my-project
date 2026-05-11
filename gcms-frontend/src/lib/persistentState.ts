@@ -20,7 +20,14 @@ export const PERSISTENT_STATE_KEYS = [
   "gcms_store_current_user_v1",
 ] as const;
 
-const SYNC_KEY_SET = new Set<string>(PERSISTENT_STATE_KEYS);
+const REMOVED_PERSISTENT_STATE_KEYS = [
+  "gcms_mock_mediation_cases_v1",
+] as const;
+
+const SYNC_KEY_SET = new Set<string>([
+  ...PERSISTENT_STATE_KEYS,
+  ...REMOVED_PERSISTENT_STATE_KEYS,
+]);
 const RESET_IF_REMOTE_MISSING_KEYS = new Set<string>([
   "gcms_mock_users_v1",
   "gcms_store_users_v1",
@@ -128,6 +135,11 @@ export async function initPersistentStateSync() {
 
   suspendSync = true;
   try {
+    for (const key of REMOVED_PERSISTENT_STATE_KEYS) {
+      originalRemoveItem.call(window.localStorage, key);
+      queueStateWrite(key, null);
+    }
+
     for (const key of PERSISTENT_STATE_KEYS) {
       const remoteRaw = remoteData[key];
 

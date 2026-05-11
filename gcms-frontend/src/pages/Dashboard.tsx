@@ -22,6 +22,7 @@ import {
   type Referral as EntityReferral,
   type User as EntityUser,
 } from "../lib/entitiesApi";
+import { isSupportedReferralTargetUser } from "../lib/referralScope";
 
 import {
   ResponsiveContainer,
@@ -53,7 +54,7 @@ type MonthlyReferral = { month: string; count: number };
 type DashboardScheduleItem = {
   id: string;
   title: string;
-  type: "Counseling Case" | "Referral Meeting" | "Student Circle";
+  type: "Counseling Case" | "Referral Meeting" | "Group Counselling";
   dateKey: string;
   timeLabel: string;
   timestamp: number;
@@ -314,6 +315,14 @@ export default function Dashboard() {
     return map;
   }, [allUsers]);
 
+  const scopedReferrals = useMemo(
+    () =>
+      allReferrals.filter((referral) =>
+        isSupportedReferralTargetUser(usersById.get(referral.studentId)),
+      ),
+    [allReferrals, usersById],
+  );
+
   // ---------- Filtered data ----------
   const userCategoryData = useMemo(() => {
     let students = 0;
@@ -358,7 +367,7 @@ export default function Dashboard() {
 
   const chartData = useMemo(() => {
     const counts = new Array<number>(12).fill(0);
-    for (const r of allReferrals) {
+    for (const r of scopedReferrals) {
       if (r.academicYearId !== selectedAyId) continue;
       const dt = new Date(String(r.referredDate || ""));
       if (Number.isNaN(dt.getTime())) continue;
@@ -368,12 +377,12 @@ export default function Dashboard() {
       month,
       count: counts[idx],
     }));
-  }, [allReferrals, selectedAyId]);
+  }, [scopedReferrals, selectedAyId]);
 
   const targetStats = useMemo(() => {
     const now = new Date();
     const usersCount = allUsers.length;
-    const referralsThisMonth = allReferrals.filter((r) => {
+    const referralsThisMonth = scopedReferrals.filter((r) => {
       if (r.academicYearId !== selectedAyId) return false;
       const dt = new Date(String(r.referredDate || ""));
       if (Number.isNaN(dt.getTime())) return false;
@@ -381,7 +390,7 @@ export default function Dashboard() {
     }).length;
 
     return { totalUsers: usersCount, referralsThisMonth };
-  }, [allUsers, allReferrals, selectedAyId]);
+  }, [allUsers, scopedReferrals, selectedAyId]);
 
   const scheduleItems = useMemo<DashboardScheduleItem[]>(() => {
     const next: DashboardScheduleItem[] = [];
@@ -407,7 +416,7 @@ export default function Dashboard() {
       });
     }
 
-    for (const item of allReferrals) {
+    for (const item of scopedReferrals) {
       if (item.academicYearId !== selectedAyId) continue;
       const statusText = String(item.status || "").trim().toLowerCase();
       if (
@@ -448,25 +457,20 @@ export default function Dashboard() {
       next.push({
         id: `session-${item.id}`,
         title: item.topic || `Session #${item.id}`,
-        type: "Student Circle",
+        type: "Group Counselling",
         dateKey,
         timeLabel: formatTimeShort(item.time),
         timestamp: parseScheduleTimestamp(item.date, item.time),
         accent: "rgba(9,14,25,1)",
-        detail: item.location ? `Location: ${item.location}` : "Student Circle",
+        detail: item.location ? `Location: ${item.location}` : "Group Counselling",
       });
     }
 
     next.sort((a, b) => a.timestamp - b.timestamp || a.title.localeCompare(b.title));
     return next;
-  }, [allCases, allReferrals, allSessions, selectedAyId, usersById]);
+  }, [allCases, scopedReferrals, allSessions, selectedAyId, usersById]);
 
   const todayKey = useMemo(() => dateKeyFromDate(new Date()), []);
-
-  const todayScheduleCount = useMemo(
-    () => scheduleItems.filter((item) => item.dateKey === todayKey).length,
-    [scheduleItems, todayKey],
-  );
 
   const upcomingWeekCount = useMemo(() => {
     const now = new Date();
@@ -477,16 +481,6 @@ export default function Dashboard() {
       (item) => item.dateKey >= todayKey && item.dateKey <= weekEndKey,
     ).length;
   }, [scheduleItems, todayKey]);
-
-  const scheduledThisMonthCount = useMemo(() => {
-    const monthStart = startOfMonth(calendarMonth);
-    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-    const startKey = dateKeyFromDate(monthStart);
-    const endKey = dateKeyFromDate(monthEnd);
-    return scheduleItems.filter(
-      (item) => item.dateKey >= startKey && item.dateKey <= endKey,
-    ).length;
-  }, [calendarMonth, scheduleItems]);
 
   const upcomingAgenda = useMemo(
     () => scheduleItems.filter((item) => item.dateKey >= todayKey).slice(0, 6),
@@ -706,10 +700,16 @@ export default function Dashboard() {
       mode === "blue"
         ? "linear-gradient(135deg, rgba(37,99,235,0.18) 0%, rgba(37,99,235,0.06) 100%)"
         : "linear-gradient(135deg, rgba(251,191,36,0.22) 0%, rgba(251,191,36,0.08) 100%)",
-    boxShadow:
+  });
+
+  const statMarker = (mode: "blue" | "yellow"): CSSProperties => ({
+    width: 18,
+    height: 18,
+    borderRadius: 6,
+    background:
       mode === "blue"
-        ? "0 14px 24px rgba(37,99,235,0.14)"
-        : "0 14px 24px rgba(245,158,11,0.14)",
+        ? `linear-gradient(135deg, ${blue} 0%, rgba(29,78,216,1) 100%)`
+        : `linear-gradient(135deg, ${yellow} 0%, rgba(217,119,6,1) 100%)`,
   });
 
   const leftStripe = (mode: "blue" | "yellow"): CSSProperties => ({
@@ -783,38 +783,6 @@ export default function Dashboard() {
     height: 42,
   };
 
-  const indicatorGrid: CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10,
-    marginTop: 14,
-  };
-
-  const indicatorCard: CSSProperties = {
-    borderRadius: 18,
-    border: "1px solid rgba(15,23,42,0.08)",
-    background: "rgba(255,255,255,0.82)",
-    padding: "14px 14px 12px",
-    boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
-    display: "grid",
-    gap: 4,
-  };
-
-  const indicatorLabel: CSSProperties = {
-    fontSize: 11.5,
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-    fontWeight: 900,
-    color: mutedInk,
-  };
-
-  const indicatorValue: CSSProperties = {
-    fontSize: 28,
-    fontWeight: 1000,
-    color: ink,
-    lineHeight: 1,
-  };
-
   const calendarWrap: CSSProperties = {
     borderRadius: 22,
     border: "1px solid rgba(15,23,42,0.08)",
@@ -851,6 +819,12 @@ export default function Dashboard() {
     padding: 16,
     display: "grid",
     gap: 12,
+  };
+
+  const agendaColumn: CSSProperties = {
+    display: "grid",
+    gap: 14,
+    marginTop: 8,
   };
 
   const agendaList: CSSProperties = {
@@ -1085,15 +1059,7 @@ export default function Dashboard() {
               </div>
             </div>
             <div style={accentPill("blue")} aria-hidden>
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: 6,
-                  background: `linear-gradient(135deg, ${blue} 0%, rgba(29,78,216,1) 100%)`,
-                  boxShadow: "0 10px 18px rgba(37,99,235,0.22)",
-                }}
-              />
+              <div style={statMarker("blue")} />
             </div>
           </div>
         </div>
@@ -1109,15 +1075,7 @@ export default function Dashboard() {
               <div style={statHint}>New referrals logged</div>
             </div>
             <div style={accentPill("blue")} aria-hidden>
-              <div
-                style={{
-                  width: 18,
-                  height: 18,
-                  borderRadius: 6,
-                  background: `linear-gradient(135deg, ${blue} 0%, rgba(29,78,216,1) 100%)`,
-                  boxShadow: "0 10px 18px rgba(37,99,235,0.22)",
-                }}
-              />
+              <div style={statMarker("blue")} />
             </div>
           </div>
         </div>
@@ -1130,10 +1088,10 @@ export default function Dashboard() {
             <div style={statLeft}>
               <div style={statLabel}>Upcoming This Week</div>
               <div style={statValue}>{upcomingWeekCount}</div>
-              <div style={statHint}>Schedules across cases, referrals, and sessions</div>
+              <div style={statHint}>Scheduled cases, referrals, and sessions</div>
             </div>
             <div style={accentPill("yellow")} aria-hidden>
-              <CalendarDays size={22} color="rgba(161,98,7,0.92)" />
+              <div style={statMarker("yellow")} />
             </div>
           </div>
         </div>
@@ -1142,13 +1100,8 @@ export default function Dashboard() {
       <div style={shellBg}>
         <div style={card}>
           <div style={sectionHeader}>
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
-                Upcoming Schedules
-              </div>
-              <div style={sub}>
-                A unified calendar view for counseling cases, referral meetings, and Student Circle sessions.
-              </div>
+            <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
+              Upcoming Schedules
             </div>
 
             <div
@@ -1219,24 +1172,6 @@ export default function Dashboard() {
             </div>
           ) : (
             <>
-              <div style={indicatorGrid}>
-                <div style={indicatorCard}>
-                  <div style={indicatorLabel}>Today</div>
-                  <div style={indicatorValue}>{todayScheduleCount}</div>
-                  <div style={sub}>Scheduled items on {formatDateShort(todayKey)}</div>
-                </div>
-                <div style={indicatorCard}>
-                  <div style={indicatorLabel}>Next 7 Days</div>
-                  <div style={indicatorValue}>{upcomingWeekCount}</div>
-                  <div style={sub}>All upcoming sessions and meetings</div>
-                </div>
-                <div style={indicatorCard}>
-                  <div style={indicatorLabel}>This Month</div>
-                  <div style={indicatorValue}>{scheduledThisMonthCount}</div>
-                  <div style={sub}>Items plotted on the visible calendar month</div>
-                </div>
-              </div>
-
               <div className="__dash_calendar_grid" style={calendarGrid}>
                 <div style={calendarWrap}>
                   <div style={weekdayGrid}>
@@ -1346,9 +1281,10 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div style={agendaCard}>
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
+                <div style={agendaColumn}>
+                  <div style={agendaCard}>
+                    <div style={{ display: "grid", gap: 4 }}>
+                      <div style={{ fontSize: 16, fontWeight: 950, color: ink }}>
                       {formatDateLong(selectedDateKey)}
                     </div>
                     <div style={sub}>
@@ -1409,17 +1345,20 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ fontSize: 14, fontWeight: 900, color: ink }}>
-                      Next Up
-                    </div>
-                    {upcomingAgenda.length === 0 ? (
-                      <div style={{ color: mutedInk, fontSize: 13 }}>
-                        No upcoming schedules recorded yet.
+                  </div>
+
+                  <div style={agendaCard}>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, color: ink }}>
+                        Next Up
                       </div>
-                    ) : (
-                      upcomingAgenda.map((item) => (
-                        <div key={`${item.id}-next`} style={{ ...agendaRow, padding: 10 }}>
+                      {upcomingAgenda.length === 0 ? (
+                        <div style={{ color: mutedInk, fontSize: 13 }}>
+                          No upcoming schedules recorded yet.
+                        </div>
+                      ) : (
+                        upcomingAgenda.map((item) => (
+                          <div key={`${item.id}-next`} style={{ ...agendaRow, padding: 10 }}>
                           <div
                             style={{
                               width: 34,
@@ -1433,7 +1372,7 @@ export default function Dashboard() {
                           >
                             {item.type === "Referral Meeting" ? (
                               <FileText size={16} />
-                            ) : item.type === "Student Circle" ? (
+                            ) : item.type === "Group Counselling" ? (
                               <UsersRound size={16} />
                             ) : (
                               <CalendarDays size={16} />
@@ -1448,6 +1387,7 @@ export default function Dashboard() {
                         </div>
                       ))
                     )}
+                    </div>
                   </div>
                 </div>
               </div>

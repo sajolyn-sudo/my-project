@@ -4,14 +4,39 @@ import {
   BookOpen,
   Building2,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ExternalLink,
+  FileDown,
+  FileText,
   GraduationCap,
   Layers3,
+  Mail,
   MapPin,
+  Phone,
   Printer,
+  QrCode,
+  RefreshCw,
+  Signature,
   Trash2,
 } from "lucide-react";
+import QRCode from "qrcode";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { getGroupSession, removeGroupSessionMember } from "../lib/entitiesApi";
+import {
+  fetchEntitiesBootstrap,
+  getGroupSession,
+  getStudentCircleAttendanceLink,
+  listStudentCircleAttendance,
+  removeGroupSessionMember,
+  type StudentCircleAttendanceRecord,
+} from "../lib/entitiesApi";
+import {
+  downloadStudentCircleAttendanceReportWord,
+  openStudentCircleAttendanceReportPrint,
+  type StudentCircleAttendanceReportPayload,
+  type StudentCircleAttendanceReportRow,
+} from "../lib/studentCircleAttendanceReportPrint";
 
 type Role =
   | "ADMIN"
@@ -29,6 +54,9 @@ type UserEntity = {
   role: Role;
   collegeId?: number;
   yearLevelId?: number;
+  courseId?: number | null;
+  courseName?: string | null;
+  section?: string | null;
 };
 
 type College = { id: number; name: string };
@@ -72,6 +100,21 @@ const YEARS_KEY = "gcms_mock_academic_years_v1";
 const YL_KEY = "gcms_mock_year_levels_v1";
 const GS_KEY = "gcms_mock_group_sessions_v1";
 const GSM_KEY = "gcms_mock_group_session_members_v1";
+const PUBLIC_APP_URL = (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)
+  ?.toString()
+  .trim()
+  .replace(/\/+$/, "");
+
+function getPublicAppOrigin(): string {
+  if (PUBLIC_APP_URL) return PUBLIC_APP_URL;
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
+
+function buildStudentCircleAttendanceUrl(sessionId: number, token: string): string {
+  const origin = getPublicAppOrigin();
+  if (!origin || !token) return "";
+  return `${origin}/student-circle-attendance/${sessionId}?t=${encodeURIComponent(token)}`;
+}
 
 function load<T>(key: string, fallback: T): T {
   try {
@@ -84,6 +127,42 @@ function load<T>(key: string, fallback: T): T {
 
 function save<T>(key: string, data: T) {
   localStorage.setItem(key, JSON.stringify(data));
+}
+
+function normalizeEmail(value?: string | null): string {
+  return String(value || "").trim().toLowerCase();
+}
+
+function fullNameOfUser(user?: {
+  fname: string;
+  mname?: string;
+  lname: string;
+}): string {
+  if (!user) return "Unknown";
+  return `${user.fname} ${user.mname ? `${user.mname} ` : ""}${user.lname}`.trim();
+}
+
+function toDateKey(value?: string | null): string {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function sortTimestamp(dateValue?: string | null, timeValue?: string | null): number {
+  const key = toDateKey(dateValue);
+  const time = timeValue || "00:00";
+  const fromKey = key ? new Date(`${key}T${time}:00`).getTime() : NaN;
+  if (Number.isFinite(fromKey)) return fromKey;
+
+  const fallback = dateValue ? new Date(dateValue).getTime() : NaN;
+  return Number.isFinite(fallback) ? fallback : 0;
+}
+
+function isPastSchedule(dateValue?: string | null, timeValue?: string | null): boolean {
+  const timestamp = sortTimestamp(dateValue, timeValue);
+  return timestamp > 0 && timestamp < Date.now();
 }
 
 function detailActionStyle(
@@ -214,15 +293,32 @@ export default function GroupSessionView() {
   const sessionId = Number(id);
 
   const listHref = useMemo(
-    () => `/app/group-sessions${location.search || ""}`,
+    () => {
+      const params = new URLSearchParams(location.search);
+      if (params.get("from") === "reports") return "/app/reports";
+      if (params.get("from") === "counseling") {
+        return "/app/counseling?tab=group-sessions";
+      }
+      return `/app/group-sessions${location.search || ""}`;
+    },
     [location.search],
   );
 
-  const users = useMemo<UserEntity[]>(() => load<UserEntity[]>(USERS_KEY, []), []);
-  const colleges = useMemo<College[]>(() => load<College[]>(COLLEGES_KEY, []), []);
-  const courses = useMemo<Course[]>(() => load<Course[]>(COURSES_KEY, []), []);
-  const years = useMemo<AcademicYear[]>(() => load<AcademicYear[]>(YEARS_KEY, []), []);
-  const yearLevels = useMemo<YearLevel[]>(() => load<YearLevel[]>(YL_KEY, []), []);
+  const [users, setUsers] = useState<UserEntity[]>(() =>
+    load<UserEntity[]>(USERS_KEY, []),
+  );
+  const [colleges, setColleges] = useState<College[]>(() =>
+    load<College[]>(COLLEGES_KEY, []),
+  );
+  const [courses, setCourses] = useState<Course[]>(() =>
+    load<Course[]>(COURSES_KEY, []),
+  );
+  const [years, setYears] = useState<AcademicYear[]>(() =>
+    load<AcademicYear[]>(YEARS_KEY, []),
+  );
+  const [yearLevels, setYearLevels] = useState<YearLevel[]>(() =>
+    load<YearLevel[]>(YL_KEY, []),
+  );
 
   const sessions = useMemo<GroupSession[]>(() => load<GroupSession[]>(GS_KEY, []), []);
   const [members, setMembers] = useState<GroupSessionMember[]>(() =>
@@ -232,6 +328,49 @@ export default function GroupSessionView() {
     sessions.find((s) => s.id === sessionId),
   );
   const [loaded, setLoaded] = useState(false);
+  const [attendance, setAttendance] = useState<StudentCircleAttendanceRecord[]>(
+    [],
+  );
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [attendanceToken, setAttendanceToken] = useState("");
+  const [attendanceLinkLoading, setAttendanceLinkLoading] = useState(false);
+  const [attendanceLinkError, setAttendanceLinkError] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [membersOpen, setMembersOpen] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+
+    fetchEntitiesBootstrap()
+      .then((payload) => {
+        if (!alive) return;
+
+        const nextUsers = payload.users ?? [];
+        const nextColleges = payload.colleges ?? [];
+        const nextCourses = payload.courses ?? [];
+        const nextYears = payload.academicYears ?? [];
+        const nextYearLevels = payload.yearLevels ?? [];
+
+        setUsers(nextUsers as UserEntity[]);
+        setColleges(nextColleges);
+        setCourses(nextCourses);
+        setYears(nextYears);
+        setYearLevels(nextYearLevels);
+
+        save(USERS_KEY, nextUsers);
+        save(COLLEGES_KEY, nextColleges);
+        save(COURSES_KEY, nextCourses);
+        save(YEARS_KEY, nextYears);
+        save(YL_KEY, nextYearLevels);
+      })
+      .catch(() => {
+        // Keep cached labels if bootstrap is unavailable.
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionId) {
@@ -273,6 +412,89 @@ export default function GroupSessionView() {
     };
   }, [sessionId]);
 
+  const attendanceUrl = useMemo(() => {
+    if (!found) return "";
+    return buildStudentCircleAttendanceUrl(found.id, attendanceToken);
+  }, [attendanceToken, found]);
+
+  useEffect(() => {
+    if (!found?.id) {
+      setAttendanceToken("");
+      setAttendanceLinkError("");
+      return;
+    }
+
+    let alive = true;
+    setAttendanceToken("");
+    setAttendanceLinkError("");
+    setAttendanceLinkLoading(true);
+
+    getStudentCircleAttendanceLink(found.id)
+      .then((res) => {
+        if (!alive) return;
+        setAttendanceToken(res.token || "");
+        if (res.isOpen === false) {
+          setAttendanceLinkError("Attendance link is currently closed.");
+        }
+      })
+      .catch((error: unknown) => {
+        if (!alive) return;
+        setAttendanceLinkError(
+          error instanceof Error
+            ? error.message
+            : "Unable to prepare the attendance QR link.",
+        );
+      })
+      .finally(() => {
+        if (alive) setAttendanceLinkLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [found?.id]);
+
+  useEffect(() => {
+    if (!attendanceUrl) {
+      setQrDataUrl("");
+      return;
+    }
+
+    let alive = true;
+    QRCode.toDataURL(attendanceUrl, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 232,
+      color: {
+        dark: "#0f172a",
+        light: "#ffffff",
+      },
+    })
+      .then((value) => {
+        if (alive) setQrDataUrl(value);
+      })
+      .catch(() => {
+        if (alive) setQrDataUrl("");
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [attendanceUrl]);
+
+  const refreshAttendance = () => {
+    if (!found?.id) return;
+    setAttendanceLoading(true);
+    listStudentCircleAttendance(found.id)
+      .then((res) => setAttendance(res.attendance ?? []))
+      .catch(() => setAttendance([]))
+      .finally(() => setAttendanceLoading(false));
+  };
+
+  useEffect(() => {
+    refreshAttendance();
+  }, [found?.id]);
+
   const labelCollege = (cid: number) =>
     colleges.find((c) => c.id === cid)?.name ?? "-";
   const labelCourse = (courseId?: number | null) =>
@@ -280,6 +502,30 @@ export default function GroupSessionView() {
   const labelAY = (ayid: number) => years.find((y) => y.id === ayid)?.name ?? "-";
   const labelYL = (ylid: number) =>
     yearLevels.find((y) => y.id === ylid)?.name ?? "-";
+
+  const fmtDateTime = (value?: string | null) => {
+    if (!value) return "-";
+    const normalized = value.includes("T") ? value : value.replace(" ", "T");
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const copyAttendanceLink = async () => {
+    if (!attendanceUrl) return;
+    try {
+      await navigator.clipboard.writeText(attendanceUrl);
+      alert("Attendance QR link copied.");
+    } catch {
+      window.prompt("Copy attendance link:", attendanceUrl);
+    }
+  };
 
   // ===== Call Slip Print Helpers =====
   const escapeHtml = (s: string) =>
@@ -507,20 +753,141 @@ export default function GroupSessionView() {
     w.document.close();
   };
 
-  const sessionMembers = found
-    ? members.filter((m) => m.groupSessionId === found.id)
-    : [];
+  const sessionMembers = useMemo(
+    () => (found ? members.filter((m) => m.groupSessionId === found.id) : []),
+    [found, members],
+  );
   const sessionMemberRows = sessionMembers.map((member) => {
     const user = users.find((item) => item.id === member.studentUserId);
-    const fullName = user
-      ? `${user.fname} ${user.mname ? `${user.mname} ` : ""}${user.lname}`.trim()
-      : "Unknown";
+    const fullName = fullNameOfUser(user);
     return {
       id: member.id,
       name: fullName,
       email: user?.email ?? "-",
     };
   });
+  const forceAllMembersPresent = found
+    ? isPastSchedule(found.date, found.time)
+    : false;
+
+  const attendanceReportRows = useMemo<
+    (StudentCircleAttendanceReportRow & { key: string })[]
+  >(() => {
+    const byStudentId = new Map<number, StudentCircleAttendanceRecord>();
+    const byEmail = new Map<string, StudentCircleAttendanceRecord>();
+
+    for (const row of attendance) {
+      if (row.studentUserId) byStudentId.set(row.studentUserId, row);
+      const emailKey = normalizeEmail(row.email);
+      if (emailKey) byEmail.set(emailKey, row);
+    }
+
+    const usedAttendanceIds = new Set<number>();
+    const rows = sessionMembers
+      .map((member) => {
+        const user = users.find((item) => item.id === member.studentUserId);
+        const matched =
+          byStudentId.get(member.studentUserId) ??
+          byEmail.get(normalizeEmail(user?.email));
+
+        if (matched) usedAttendanceIds.add(matched.id);
+
+        const userCourseName =
+          user?.courseName ||
+          (user?.courseId ? labelCourse(user.courseId) : "") ||
+          (found?.courseId ? labelCourse(found.courseId) : "");
+        const userYearLevelName =
+          (user?.yearLevelId ? labelYL(user.yearLevelId) : "") ||
+          (found?.yearLevelId ? labelYL(found.yearLevelId) : "");
+
+        return {
+          key: `member-${member.id}`,
+          studentName: matched?.studentName || fullNameOfUser(user),
+          courseName: matched?.courseName || userCourseName || "-",
+          yearLevelName: matched?.yearLevelName || userYearLevelName || "-",
+          phoneNumber: matched?.phoneNumber || "",
+          email: matched?.email || user?.email || "",
+          status: forceAllMembersPresent || matched ? "Present" : "Absent",
+          submittedAt: matched?.submittedAt,
+          signatureData: matched?.signatureData,
+          signatureSource: matched?.signatureSource,
+        } satisfies StudentCircleAttendanceReportRow & { key: string };
+      })
+      .sort((a, b) => a.studentName.localeCompare(b.studentName));
+
+    const extraRows = attendance
+      .filter((row) => !usedAttendanceIds.has(row.id))
+      .map((row) => ({
+        key: `attendance-${row.id}`,
+        studentName: row.studentName,
+        courseName: row.courseName || "-",
+        yearLevelName: row.yearLevelName || "-",
+        phoneNumber: row.phoneNumber || "",
+        email: row.email || "",
+        status: "Present (not in member list)",
+        submittedAt: row.submittedAt,
+        signatureData: row.signatureData,
+        signatureSource: row.signatureSource,
+      }) satisfies StudentCircleAttendanceReportRow & { key: string });
+
+    return [...rows, ...extraRows];
+  }, [
+    attendance,
+    found,
+    forceAllMembersPresent,
+    labelCourse,
+    labelYL,
+    sessionMembers,
+    users,
+  ]);
+
+  const presentCount = attendanceReportRows.filter(
+    (row) => row.status === "Present",
+  ).length;
+  const absentCount = attendanceReportRows.filter(
+    (row) => row.status === "Absent",
+  ).length;
+  const extraSubmissionCount = attendanceReportRows.filter(
+    (row) => row.status === "Present (not in member list)",
+  ).length;
+
+  const buildAttendanceReportPayload =
+    (): StudentCircleAttendanceReportPayload | null => {
+      if (!found) return null;
+    const rows: StudentCircleAttendanceReportRow[] = attendanceReportRows.map(
+      ({ key: _key, ...row }) => row,
+    );
+
+      return {
+      sessionId: found.id,
+      topic: found.topic || "Group Counselling",
+      date: found.date,
+      time: found.time,
+      location: found.location,
+      facilitator: found.facilitator,
+      academicYearName: labelAY(found.academicYearId),
+      collegeName: labelCollege(found.collegeId),
+      courseName: labelCourse(found.courseId),
+      yearLevelName: labelYL(found.yearLevelId),
+      expectedCount: sessionMembers.length,
+      presentCount,
+      absentCount,
+      extraSubmissionCount,
+      rows,
+      };
+    };
+
+  const openAttendanceReport = () => {
+    const payload = buildAttendanceReportPayload();
+    if (!payload) return;
+    openStudentCircleAttendanceReportPrint(payload);
+  };
+
+  const downloadAttendanceReportWord = () => {
+    const payload = buildAttendanceReportPayload();
+    if (!payload) return;
+    downloadStudentCircleAttendanceReportWord(payload);
+  };
 
   const removeMember = async (memberId: number) => {
     if (!found) return;
@@ -553,9 +920,38 @@ export default function GroupSessionView() {
     borderRadius: 12,
     border: "1px solid var(--border)",
     background: "rgba(255,255,255,0.75)",
-    fontWeight: 800,
+    fontWeight: 500,
     fontSize: 13,
     lineHeight: 1.2,
+  };
+
+  const listTh: React.CSSProperties = {
+    padding: "8px 8px",
+    opacity: 0.8,
+    fontSize: 13.5,
+    fontWeight: 600,
+    textAlign: "left",
+  };
+
+  const listTd: React.CSSProperties = {
+    padding: "8px 8px",
+    fontSize: 13.5,
+    lineHeight: 1.35,
+    fontWeight: 400,
+  };
+
+  const detailLine: React.CSSProperties = {
+    display: "inline-flex",
+    gap: 8,
+    alignItems: "center",
+    fontSize: 13.5,
+    lineHeight: 1.35,
+    fontWeight: 400,
+  };
+
+  const detailLabel: React.CSSProperties = {
+    opacity: 0.8,
+    fontWeight: 400,
   };
 
   const printButton: React.CSSProperties = {
@@ -568,7 +964,7 @@ export default function GroupSessionView() {
     display: "inline-flex",
     alignItems: "center",
     gap: 10,
-    fontWeight: 900,
+    fontWeight: 600,
     color: "var(--primary)",
     boxShadow: "0 4px 14px rgba(15, 23, 42, 0.06)",
   };
@@ -611,18 +1007,18 @@ export default function GroupSessionView() {
             justifyContent: "space-between",
           }}
         >
-          <h2 style={{ fontWeight: 900, margin: 0 }}>Student Circle Details</h2>
+          <h2 style={{ fontWeight: 600, margin: 0 }}>Group Counselling Details</h2>
           <DetailActionLink
             to={listHref}
-            title="Back to Student Circle"
-            ariaLabel="Back to Student Circle"
+            title="Back to Group Counselling"
+            ariaLabel="Back to Group Counselling"
             baseStyle={iconAction}
           >
             <ArrowLeft size={18} />
           </DetailActionLink>
         </div>
         <div style={card}>
-          <div style={{ opacity: 0.8 }}>{loaded ? "Student Circle not found." : "Loading Student Circle..."}</div>
+          <div style={{ opacity: 0.8 }}>{loaded ? "Group Counselling not found." : "Loading Group Counselling..."}</div>
         </div>
       </div>
     );
@@ -638,8 +1034,8 @@ export default function GroupSessionView() {
           flexWrap: "wrap",
         }}
       >
-        <h2 style={{ fontWeight: 900, margin: 0, marginRight: "auto" }}>
-          Student Circle Details
+        <h2 style={{ fontWeight: 600, margin: 0, marginRight: "auto" }}>
+          Group Counselling Details
         </h2>
 
         <DetailActionButton
@@ -654,8 +1050,8 @@ export default function GroupSessionView() {
 
         <DetailActionLink
           to={listHref}
-          title="Back to Student Circle"
-          ariaLabel="Back to Student Circle"
+          title="Back to Group Counselling"
+          ariaLabel="Back to Group Counselling"
           baseStyle={iconAction}
         >
           <ArrowLeft size={18} />
@@ -687,93 +1083,425 @@ export default function GroupSessionView() {
         </div>
 
         <div style={{ marginTop: 16, display: "grid", gap: 8 }}>
-          <div style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+          <div style={detailLine}>
             <BookOpen size={15} />
-            <span style={{ opacity: 0.8 }}>Course:</span>
-            <b>{labelCourse(found.courseId)}</b>
+            <span style={detailLabel}>Course:</span>
+            <span>{labelCourse(found.courseId)}</span>
           </div>
 
           {found.facilitator?.trim() ? (
-            <div>
-              <span style={{ opacity: 0.8 }}>Facilitator:</span>{" "}
-              <b>{found.facilitator}</b>
+            <div style={detailLine}>
+              <span style={detailLabel}>Facilitator:</span>
+              <span>{found.facilitator}</span>
             </div>
           ) : null}
 
           {found.notes ? (
-            <div>
-              <span style={{ opacity: 0.8 }}>Notes:</span> <b>{found.notes}</b>
+            <div style={detailLine}>
+              <span style={detailLabel}>Notes:</span>
+              <span>{found.notes}</span>
             </div>
           ) : null}
 
-          <div style={{ opacity: 0.75, fontSize: 13 }}>
-            Student Circle ID: <b>#{found.id}</b> | Created: <b>{found.createdAt}</b>
+          <div style={{ ...listTd, padding: 0, opacity: 0.75 }}>
+            Group Counselling ID: #{found.id} | Created: {found.createdAt}
           </div>
         </div>
       </div>
 
       <div style={card}>
-        <h3 style={{ marginTop: 0, marginBottom: 10 }}>Members</h3>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 16,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <h3
+              style={{
+                marginTop: 0,
+                marginBottom: 10,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <QrCode size={18} />
+              Attendance QR
+            </h3>
+            <div style={{ ...listTd, padding: 0, opacity: 0.78, marginBottom: 10 }}>
+              Students scan this QR to submit their name, course, year level,
+              phone number, email, and signature.
+            </div>
+            <input
+              value={attendanceUrl}
+              readOnly
+              placeholder={
+                attendanceLinkLoading
+                  ? "Preparing secure attendance link..."
+                  : "Secure attendance link unavailable"
+              }
+              style={{
+                width: "100%",
+                height: 38,
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                padding: "0 10px",
+                fontWeight: 400,
+                color: "var(--primary)",
+                background: "rgba(255,255,255,0.72)",
+              }}
+            />
+            {attendanceLinkError ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  color: "#991b1b",
+                  fontWeight: 850,
+                  fontSize: 13,
+                }}
+              >
+                {attendanceLinkError}
+              </div>
+            ) : null}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              <DetailActionButton
+                onClick={copyAttendanceLink}
+                title="Copy attendance QR link"
+                ariaLabel="Copy attendance QR link"
+                baseStyle={printButton}
+              >
+                <Copy size={16} />
+                Copy Link
+              </DetailActionButton>
+              <a
+                href={attendanceUrl || undefined}
+                target="_blank"
+                rel="noreferrer"
+                title="Open attendance form"
+                aria-label="Open attendance form"
+                onClick={(event) => {
+                  if (!attendanceUrl) event.preventDefault();
+                }}
+                style={{
+                  ...printButton,
+                  textDecoration: "none",
+                  opacity: attendanceUrl ? 1 : 0.62,
+                  pointerEvents: attendanceUrl ? "auto" : "none",
+                }}
+              >
+                <ExternalLink size={16} />
+                Open Form
+              </a>
+            </div>
+          </div>
 
-        {sessionMembers.length === 0 ? (
-          <div style={{ opacity: 0.8 }}>No members for this session.</div>
+          <div
+            style={{
+              width: 248,
+              minHeight: 248,
+              borderRadius: 12,
+              border: "1px solid var(--border)",
+              background: "white",
+              display: "grid",
+              placeItems: "center",
+              padding: 8,
+              justifySelf: "end",
+            }}
+          >
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt="Group Counselling attendance QR code"
+                style={{ width: 232, height: 232 }}
+              />
+            ) : (
+              <QrCode size={52} style={{ opacity: 0.46 }} />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div style={card}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            flexWrap: "wrap",
+            marginBottom: 10,
+          }}
+        >
+          <h3
+            style={{
+              margin: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Signature size={18} />
+            Attendance Report
+          </h3>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={openAttendanceReport}
+              disabled={attendanceLoading || attendanceReportRows.length === 0}
+              style={{
+                ...printButton,
+                height: 36,
+                opacity:
+                  attendanceLoading || attendanceReportRows.length === 0 ? 0.7 : 1,
+              }}
+            >
+              <FileDown size={15} />
+              Download PDF
+            </button>
+            <button
+              type="button"
+              onClick={downloadAttendanceReportWord}
+              disabled={attendanceLoading || attendanceReportRows.length === 0}
+              style={{
+                ...printButton,
+                height: 36,
+                opacity:
+                  attendanceLoading || attendanceReportRows.length === 0 ? 0.7 : 1,
+              }}
+            >
+              <FileText size={15} />
+              Download Word
+            </button>
+            <button
+              type="button"
+              onClick={refreshAttendance}
+              disabled={attendanceLoading}
+              style={{
+                ...printButton,
+                height: 36,
+                opacity: attendanceLoading ? 0.7 : 1,
+              }}
+            >
+              <RefreshCw size={15} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {attendanceLoading ? (
+          <div style={{ opacity: 0.8 }}>Loading attendance report...</div>
+        ) : attendanceReportRows.length === 0 ? (
+          <div style={{ opacity: 0.8 }}>
+            No students or attendance submissions were found for this Group Counselling session.
+          </div>
         ) : (
           <div
             style={{
               border: "1px solid var(--border)",
               borderRadius: 12,
               background: "rgba(255,255,255,0.65)",
-              overflow: "hidden",
+              overflowX: "auto",
             }}
           >
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table
+              style={{
+                width: "100%",
+                minWidth: 1120,
+                borderCollapse: "collapse",
+              }}
+            >
               <thead>
                 <tr style={{ background: "rgba(15, 23, 42, 0.04)" }}>
-                  <th style={{ textAlign: "left", padding: "12px 14px", fontSize: 13 }}>
-                    Name
+                  <th style={{ ...listTh, width: 52, textAlign: "center" }}>
+                    #
                   </th>
-                  <th style={{ textAlign: "left", padding: "12px 14px", fontSize: 13 }}>
+                  <th style={listTh}>
+                    Student
+                  </th>
+                  <th style={listTh}>
+                    Course / Year Level
+                  </th>
+                  <th style={listTh}>
+                    Phone
+                  </th>
+                  <th style={listTh}>
                     Email
                   </th>
-                  <th style={{ width: 72, padding: "12px 14px", fontSize: 13 }}> </th>
+                  <th style={listTh}>
+                    Status
+                  </th>
+                  <th style={listTh}>
+                    Submitted
+                  </th>
+                  <th style={listTh}>
+                    Signature
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {sessionMemberRows.map((member, idx) => (
-                  <tr key={member.id}>
+                {attendanceReportRows.map((row, idx) => (
+                  <tr key={row.key}>
                     <td
                       style={{
-                        padding: "12px 14px",
-                        borderTop: idx === 0 ? "1px solid var(--border)" : "1px solid var(--border)",
-                        fontWeight: 900,
-                      }}
-                    >
-                      {member.name}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px 14px",
-                        borderTop: "1px solid var(--border)",
-                        opacity: 0.82,
-                      }}
-                    >
-                      {member.email}
-                    </td>
-                    <td
-                      style={{
-                        padding: "12px 14px",
+                        ...listTd,
                         borderTop: "1px solid var(--border)",
                         textAlign: "center",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
                       }}
                     >
-                      <button
-                        onClick={() => removeMember(member.id)}
-                        style={dangerButton}
-                        title="Remove member"
-                        aria-label="Remove member"
+                      {idx + 1}
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      {row.studentName}
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      <div>{row.courseName || "-"}</div>
+                      <div style={{ opacity: 0.72, fontSize: 12 }}>
+                        {row.yearLevelName || "-"}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Phone size={13} />
+                        {row.phoneNumber || "-"}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        wordBreak: "break-word",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Mail size={13} />
+                        {row.email || "-"}
+                      </div>
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          minWidth: 86,
+                          padding: "7px 10px",
+                          borderRadius: 999,
+                          border:
+                            row.status === "Absent"
+                              ? "1px solid rgba(220,38,38,0.24)"
+                              : "1px solid rgba(22,163,74,0.24)",
+                          background:
+                            row.status === "Absent"
+                              ? "rgba(254,226,226,0.95)"
+                              : "rgba(220,252,231,0.95)",
+                          color:
+                            row.status === "Absent" ? "#991b1b" : "#166534",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
                       >
-                        <Trash2 size={16} />
-                      </button>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      {fmtDateTime(row.submittedAt)}
+                    </td>
+                    <td
+                      style={{
+                        ...listTd,
+                        borderTop: "1px solid var(--border)",
+                        background:
+                          row.status === "Absent"
+                            ? "rgba(254,242,242,0.78)"
+                            : undefined,
+                      }}
+                    >
+                      {row.signatureData ? (
+                        <a
+                          href={row.signatureData}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Open signature image"
+                          style={{
+                            display: "inline-grid",
+                            gap: 4,
+                            color: "var(--primary)",
+                            textDecoration: "none",
+                          }}
+                        >
+                          <img
+                            src={row.signatureData}
+                            alt={`${row.studentName} signature`}
+                            style={{
+                              width: 110,
+                              height: 44,
+                              objectFit: "contain",
+                              border: "1px solid var(--border)",
+                              borderRadius: 8,
+                              background: "white",
+                            }}
+                          />
+                          {String(row.signatureSource || "").toLowerCase()}
+                        </a>
+                      ) : (
+                        <span style={{ opacity: 0.65 }}>-</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -782,7 +1510,99 @@ export default function GroupSessionView() {
           </div>
         )}
 
-        <div style={{ marginTop: 12, opacity: 0.82, fontWeight: 800 }}>
+        <div style={{ ...listTd, padding: 0, marginTop: 12, opacity: 0.82 }}>
+          Expected: {sessionMembers.length} | Present: {presentCount} | Absent:{" "}
+          {absentCount} | QR Submissions: {attendance.length}
+          {extraSubmissionCount > 0
+            ? ` | Not in member list: ${extraSubmissionCount}`
+            : ""}
+        </div>
+      </div>
+
+      <div style={card}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
+          <h3 style={{ margin: 0, fontWeight: 600 }}>
+            Members ({sessionMembers.length})
+          </h3>
+          <button
+            type="button"
+            onClick={() => setMembersOpen((open) => !open)}
+            aria-expanded={membersOpen}
+            style={{ ...printButton, height: 36 }}
+          >
+            {membersOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            {membersOpen ? "Hide Members" : "Show Members"}
+          </button>
+        </div>
+
+        {!membersOpen ? null : sessionMembers.length === 0 ? (
+          <div style={{ opacity: 0.8 }}>No members for this session.</div>
+        ) : (
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              background: "rgba(255,255,255,0.65)",
+              padding: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 10,
+              }}
+            >
+              {sessionMemberRows.map((member) => (
+                <div
+                  key={member.id}
+                  style={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    background: "white",
+                    padding: 10,
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: 8,
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ ...listTd, padding: 0 }}>{member.name}</div>
+                    <div
+                      style={{
+                        ...listTd,
+                        padding: 0,
+                        opacity: 0.78,
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {member.email}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => removeMember(member.id)}
+                    style={dangerButton}
+                    title="Remove member"
+                    aria-label="Remove member"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ ...listTd, padding: 0, marginTop: 12, opacity: 0.82 }}>
           Total Members: {sessionMembers.length}
         </div>
       </div>
